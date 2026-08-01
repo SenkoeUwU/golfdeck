@@ -696,6 +696,7 @@ LS_Right = Right | | hold
         {
             public string Label;      // labeled buttons: matched to mapping entries by label
             public string Sub = "";   // green secondary print on the physical box (cosmetic)
+            public bool SubLeft;      // sub printed left of the button (C-up / C-down) vs below
             public string[] Inputs;   // arrow buttons: matched by input
             public float X, Y;
             public bool Arrow;
@@ -748,15 +749,16 @@ LS_Right = Right | | hold
             slots.Clear();
             if (layout == 1)
             {
-                // V2 board
-                AddBtn(0.150f, 0.235f, "SCORECARD", "C↑");
+                // V2 board (sub print placement matches the product photos:
+                // C-up / C-down left of the button, S1 / S2 / tee subs below)
+                AddBtn(0.150f, 0.235f, "SCORECARD", "C↑", true);
                 AddBtn(0.383f, 0.235f, "FAST FWD");
                 AddBtn(0.617f, 0.235f, "HEATMAP", "S1");
                 AddBtn(0.850f, 0.235f, "HIDE OBJECT", "S2");
-                AddBtn(0.150f, 0.560f, "SHOTCAM", "C↓");
+                AddBtn(0.150f, 0.560f, "SHOTCAM", "C↓", true);
                 AddBtn(0.383f, 0.560f, "MULLIGAN");
-                AddBtn(0.150f, 0.850f, "PUTT", "←T");
-                AddBtn(0.383f, 0.850f, "FLYOVER", "T→");
+                AddBtn(0.150f, 0.835f, "PUTT", "←T");
+                AddBtn(0.383f, 0.835f, "FLYOVER", "T→");
 
                 glyphX = 0.720f; glyphY = 0.660f;
                 AddArrow(0.720f, 0.513f, "▲", "LS_UP", "DPAD_UP");
@@ -789,14 +791,11 @@ LS_Right = Right | | hold
             Invalidate();
         }
 
-        void AddBtn(float x, float y, string label)
+        void AddBtn(float x, float y, string label, string sub = "", bool subLeft = false)
         {
-            var s = new Slot(); s.X = x; s.Y = y; s.Label = label; slots.Add(s);
-        }
-
-        void AddBtn(float x, float y, string label, string sub)
-        {
-            var s = new Slot(); s.X = x; s.Y = y; s.Label = label; s.Sub = sub; slots.Add(s);
+            var s = new Slot();
+            s.X = x; s.Y = y; s.Label = label; s.Sub = sub; s.SubLeft = subLeft;
+            slots.Add(s);
         }
 
         void AddArrow(float x, float y, string glyph, params string[] inputs)
@@ -1038,7 +1037,7 @@ LS_Right = Right | | hold
                     }
                 }
 
-                // green secondary print (cosmetic, matches the physical box)
+                // green secondary print (cosmetic, placed as printed on the box)
                 if (s.Sub.Length > 0)
                 {
                     using (var br = new SolidBrush(Color.FromArgb(150, 235, 100)))
@@ -1046,8 +1045,10 @@ LS_Right = Right | | hold
                         var sz = g.MeasureString(s.Sub, markFont);
                         if (s.Arrow)
                             g.DrawString(s.Sub, markFont, br, x - sz.Width / 2f, y + rr + 5);
+                        else if (s.SubLeft)
+                            g.DrawString(s.Sub, markFont, br, x - rr - sz.Width - 6, y - sz.Height / 2f);
                         else
-                            g.DrawString(s.Sub, markFont, br, x + rr + 5, y - sz.Height / 2f);
+                            g.DrawString(s.Sub, markFont, br, x - sz.Width / 2f, y + rr + 23);
                     }
                 }
             }
