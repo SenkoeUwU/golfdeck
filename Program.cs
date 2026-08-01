@@ -91,6 +91,142 @@ namespace GolfDeck
         public InputUnion U;
     }
 
+    // ---------------- Interception driver (github.com/oblitum/Interception) ----------------
+    // Direct P/Invoke of interception.dll — same driver AutoHotInterception wraps,
+    // no AutoHotkey needed. Keystrokes appear to come from a real keyboard device.
+
+    [StructLayout(LayoutKind.Sequential)]
+    struct InterceptionKeyStroke
+    {
+        public ushort code;
+        public ushort state;
+        public uint information;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    struct InterceptionMouseStroke
+    {
+        public ushort state;
+        public ushort flags;
+        public short rolling;
+        public int x;
+        public int y;
+        public uint information;
+    }
+
+    [StructLayout(LayoutKind.Explicit)]
+    struct InterceptionStroke
+    {
+        [FieldOffset(0)] public InterceptionKeyStroke key;
+        [FieldOffset(0)] public InterceptionMouseStroke mouse;
+    }
+
+    static class Interception
+    {
+        [DllImport("interception.dll", CallingConvention = CallingConvention.Cdecl)]
+        static extern IntPtr interception_create_context();
+
+        [DllImport("interception.dll", CallingConvention = CallingConvention.Cdecl)]
+        static extern void interception_destroy_context(IntPtr ctx);
+
+        [DllImport("interception.dll", CallingConvention = CallingConvention.Cdecl)]
+        static extern int interception_send(IntPtr ctx, int device, ref InterceptionStroke stroke, uint n);
+
+        [DllImport("interception.dll", CallingConvention = CallingConvention.Cdecl)]
+        static extern uint interception_get_hardware_id(IntPtr ctx, int device, IntPtr buffer, uint size);
+
+        const ushort KEY_DOWN = 0x00;
+        const ushort KEY_UP = 0x01;
+        const ushort KEY_E0 = 0x02;
+
+        static IntPtr ctx = IntPtr.Zero;
+        static int kbdDevice;
+
+        public static bool Available;
+        public static string Status = "off";
+
+        public static bool Init()
+        {
+            if (Available) return true;
+            try
+            {
+                ctx = interception_create_context();
+            }
+            catch (DllNotFoundException)
+            {
+                Status = "interception.dll not next to exe";
+                return false;
+            }
+            catch (Exception ex)
+            {
+                Status = "dll error: " + ex.Message;
+                return false;
+            }
+            if (ctx == IntPtr.Zero)
+            {
+                Status = "driver not installed";
+                return false;
+            }
+
+            // find a real keyboard: devices 1..10 are keyboards, connected ones have a hardware id
+            kbdDevice = 0;
+            IntPtr buf = Marshal.AllocHGlobal(512);
+            try
+            {
+                for (int d = 1; d <= 10; d++)
+                {
+                    uint len = interception_get_hardware_id(ctx, d, buf, 512);
+                    if (len > 0) { kbdDevice = d; break; }
+                }
+            }
+            finally { Marshal.FreeHGlobal(buf); }
+
+            if (kbdDevice == 0)
+            {
+                Status = "no keyboard device found";
+                interception_destroy_context(ctx);
+                ctx = IntPtr.Zero;
+                return false;
+            }
+
+            Available = true;
+            Status = "ok (keyboard " + kbdDevice + ")";
+            return true;
+        }
+
+        public static void SendKey(ushort scan, bool e0, bool down)
+        {
+            if (!Available) return;
+            var s = new InterceptionStroke();
+            s.key.code = scan;
+            s.key.state = (ushort)((down ? KEY_DOWN : KEY_UP) | (e0 ? KEY_E0 : 0));
+            s.key.information = 0;
+            interception_send(ctx, kbdDevice, ref s, 1);
+        }
+
+        public static void Shutdown()
+        {
+            if (ctx != IntPtr.Zero)
+            {
+                interception_destroy_context(ctx);
+                ctx = IntPtr.Zero;
+                Available = false;
+                Status = "off";
+            }
+        }
+    }
+
+    // ---------------- key sending ----------------
+
+    enum SendMode { VirtualKeys = 0, ScanCodes = 1, Driver = 2 }
+
+    struct KeyEv
+    {
+        public ushort Vk;
+        public bool Down;
+        public KeyEv(ushort vk, bool down) { Vk = vk; Down = down; }
+    }
+
     static class KeySender
     {
         [DllImport("user32.dll", SetLastError = true)]
@@ -103,7 +239,7 @@ namespace GolfDeck
         const uint KEYEVENTF_KEYUP = 0x0002;
         const uint KEYEVENTF_SCANCODE = 0x0008;
 
-        public static bool UseScanCodes = false;
+        public static SendMode Mode = SendMode.VirtualKeys;
         public static long KeysSent = 0;
 
         // keys that need the extended-key flag (arrows, nav cluster, win keys)
@@ -119,7 +255,7 @@ namespace GolfDeck
             uint flags = down ? 0u : KEYEVENTF_KEYUP;
             if (extended.Contains(vk)) flags |= KEYEVENTF_EXTENDEDKEY;
             ushort scan = (ushort)MapVirtualKey(vk, 0); // MAPVK_VK_TO_VSC
-            if (UseScanCodes)
+            if (Mode == SendMode.ScanCodes)
             {
                 inp.U.ki.wVk = 0;
                 inp.U.ki.wScan = scan;
@@ -134,36 +270,48 @@ namespace GolfDeck
             return inp;
         }
 
-        static void Emit(List<INPUT> seq)
+        static void Emit(List<KeyEv> seq)
         {
             if (seq.Count == 0) return;
-            SendInput((uint)seq.Count, seq.ToArray(), Marshal.SizeOf(typeof(INPUT)));
-            KeysSent += seq.Count;
+            if (Mode == SendMode.Driver && Interception.Available)
+            {
+                foreach (var ev in seq)
+                {
+                    ushort scan = (ushort)MapVirtualKey(ev.Vk, 0);
+                    Interception.SendKey(scan, extended.Contains(ev.Vk), ev.Down);
+                }
+                KeysSent += seq.Count;
+                return;
+            }
+            var arr = new INPUT[seq.Count];
+            for (int i = 0; i < seq.Count; i++) arr[i] = Make(seq[i].Vk, seq[i].Down);
+            SendInput((uint)arr.Length, arr, Marshal.SizeOf(typeof(INPUT)));
+            KeysSent += arr.Length;
         }
 
         public static void Press(List<ushort> mods, ushort vk)
         {
-            var seq = new List<INPUT>();
-            foreach (var m in mods) seq.Add(Make(m, true));
-            seq.Add(Make(vk, true));
+            var seq = new List<KeyEv>();
+            foreach (var m in mods) seq.Add(new KeyEv(m, true));
+            seq.Add(new KeyEv(vk, true));
             Emit(seq);
         }
 
         public static void Release(List<ushort> mods, ushort vk)
         {
-            var seq = new List<INPUT>();
-            seq.Add(Make(vk, false));
-            for (int i = mods.Count - 1; i >= 0; i--) seq.Add(Make(mods[i], false));
+            var seq = new List<KeyEv>();
+            seq.Add(new KeyEv(vk, false));
+            for (int i = mods.Count - 1; i >= 0; i--) seq.Add(new KeyEv(mods[i], false));
             Emit(seq);
         }
 
         public static void Tap(List<ushort> mods, ushort vk)
         {
-            var seq = new List<INPUT>();
-            foreach (var m in mods) seq.Add(Make(m, true));
-            seq.Add(Make(vk, true));
-            seq.Add(Make(vk, false));
-            for (int i = mods.Count - 1; i >= 0; i--) seq.Add(Make(mods[i], false));
+            var seq = new List<KeyEv>();
+            foreach (var m in mods) seq.Add(new KeyEv(m, true));
+            seq.Add(new KeyEv(vk, true));
+            seq.Add(new KeyEv(vk, false));
+            for (int i = mods.Count - 1; i >= 0; i--) seq.Add(new KeyEv(mods[i], false));
             Emit(seq);
         }
     }
@@ -352,7 +500,6 @@ LS_Right = Right | | hold
                 // parse key combo
                 bool ok = true;
                 string[] toks = e.KeysText.Split('+');
-                // special case: the key itself might be '+' or contain it; not supported, keep simple
                 for (int i = 0; i < toks.Length; i++)
                 {
                     ushort vk;
@@ -522,7 +669,6 @@ LS_Right = Right | | hold
         {
             public string[] Inputs;
             public float X, Y;
-            public bool LabelAbove = true;
             public bool Arrow;
             public string ArrowGlyph = "";
             public Slot(float x, float y, params string[] inputs) { X = x; Y = y; Inputs = inputs; }
@@ -531,7 +677,6 @@ LS_Right = Right | | hold
         static readonly Color Green = Color.FromArgb(150, 235, 100);
         static readonly Color GreenDim = Color.FromArgb(95, 150, 70);
         static readonly Color BoardBg = Color.FromArgb(24, 24, 26);
-        static readonly Color BtnFace = Color.FromArgb(38, 38, 40);
         static readonly Color BtnRing = Color.FromArgb(12, 12, 12);
 
         List<Slot> slots = new List<Slot>();
@@ -702,18 +847,19 @@ LS_Right = Right | | hold
         System.Windows.Forms.Timer timer;
         NotifyIcon tray;
         CheckBox chkAutostart;
-        CheckBox chkScan;
+        RadioButton rbVk, rbScan, rbDriver;
         Label lblStatus;
         bool exiting;
         bool startMinimized;
-        int statusTick;
+        bool suppressModeEvents;
+        int statusTick = 999;
 
         public MainForm(bool minimized)
         {
             startMinimized = minimized;
             Text = "GolfDeck";
             BackColor = Color.FromArgb(14, 14, 15);
-            ClientSize = new Size(680, 560);
+            ClientSize = new Size(680, 570);
             FormBorderStyle = FormBorderStyle.FixedSingle;
             MaximizeBox = false;
             StartPosition = FormStartPosition.CenterScreen;
@@ -724,32 +870,32 @@ LS_Right = Right | | hold
             Controls.Add(board);
 
             var bottom = new Panel();
-            bottom.Bounds = new Rectangle(0, 470, 680, 90);
+            bottom.Bounds = new Rectangle(0, 470, 680, 100);
             bottom.BackColor = Color.FromArgb(20, 20, 22);
             Controls.Add(bottom);
 
             chkAutostart = new CheckBox();
             chkAutostart.Text = "Start with Windows";
             chkAutostart.ForeColor = Color.Gainsboro;
-            chkAutostart.Location = new Point(16, 10);
+            chkAutostart.Location = new Point(16, 8);
             chkAutostart.AutoSize = true;
             chkAutostart.Checked = GetAutostart();
             chkAutostart.CheckedChanged += delegate { SetAutostart(chkAutostart.Checked); };
             bottom.Controls.Add(chkAutostart);
 
-            chkScan = new CheckBox();
-            chkScan.Text = "Send as scancodes (try if game ignores keys)";
-            chkScan.ForeColor = Color.Gainsboro;
-            chkScan.Location = new Point(16, 34);
-            chkScan.AutoSize = true;
-            chkScan.Checked = GetSetting("ScanCodes", 0) != 0;
-            KeySender.UseScanCodes = chkScan.Checked;
-            chkScan.CheckedChanged += delegate
-            {
-                KeySender.UseScanCodes = chkScan.Checked;
-                SetSetting("ScanCodes", chkScan.Checked ? 1 : 0);
-            };
-            bottom.Controls.Add(chkScan);
+            var lblMode = new Label();
+            lblMode.Text = "Key send:";
+            lblMode.ForeColor = Color.Gainsboro;
+            lblMode.Location = new Point(16, 38);
+            lblMode.AutoSize = true;
+            bottom.Controls.Add(lblMode);
+
+            rbVk = MakeRadio("Virtual keys", 92, 36);
+            rbScan = MakeRadio("Scancodes", 196, 36);
+            rbDriver = MakeRadio("Driver (Interception)", 296, 36);
+            bottom.Controls.Add(rbVk);
+            bottom.Controls.Add(rbScan);
+            bottom.Controls.Add(rbDriver);
 
             var btnEdit = MakeButton("Edit mapping", 470, 8);
             btnEdit.Click += delegate { Process.Start("notepad.exe", "\"" + Config.MappingPath + "\""); };
@@ -761,10 +907,30 @@ LS_Right = Right | | hold
 
             lblStatus = new Label();
             lblStatus.ForeColor = Color.Gray;
-            lblStatus.Location = new Point(16, 62);
+            lblStatus.Location = new Point(16, 70);
             lblStatus.AutoSize = true;
             lblStatus.Text = "starting...";
             bottom.Controls.Add(lblStatus);
+
+            // restore saved send mode without popping dialogs at startup
+            int mode = GetSetting("SendMode", 0);
+            suppressModeEvents = true;
+            if (mode == 2 && Interception.Init())
+            {
+                KeySender.Mode = SendMode.Driver;
+                rbDriver.Checked = true;
+            }
+            else if (mode == 1)
+            {
+                KeySender.Mode = SendMode.ScanCodes;
+                rbScan.Checked = true;
+            }
+            else
+            {
+                KeySender.Mode = SendMode.VirtualKeys;
+                rbVk.Checked = true;
+            }
+            suppressModeEvents = false;
 
             // tray
             tray = new NotifyIcon();
@@ -785,6 +951,60 @@ LS_Right = Right | | hold
             timer.Interval = 10;
             timer.Tick += OnTick;
             timer.Start();
+        }
+
+        RadioButton MakeRadio(string text, int x, int y)
+        {
+            var r = new RadioButton();
+            r.Text = text;
+            r.ForeColor = Color.Gainsboro;
+            r.Location = new Point(x, y);
+            r.AutoSize = true;
+            r.CheckedChanged += OnModeChanged;
+            return r;
+        }
+
+        void OnModeChanged(object sender, EventArgs e)
+        {
+            if (suppressModeEvents) return;
+            var rb = (RadioButton)sender;
+            if (!rb.Checked) return;
+
+            if (rb == rbDriver)
+            {
+                if (!Interception.Init())
+                {
+                    MessageBox.Show(this,
+                        "Driver mode sends keystrokes through the Interception kernel driver, " +
+                        "so they look like real keyboard hardware. One-time setup:\r\n\r\n" +
+                        "1. Download Interception.zip from github.com/oblitum/Interception (Releases).\r\n" +
+                        "2. Admin command prompt:  install-interception.exe /install\r\n" +
+                        "3. Reboot.\r\n" +
+                        "4. Copy library\\x64\\interception.dll next to GolfDeck.exe.\r\n" +
+                        "5. Select this mode again.\r\n\r\n" +
+                        "Current problem: " + Interception.Status,
+                        "Interception not ready", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    suppressModeEvents = true;
+                    rbVk.Checked = true;
+                    suppressModeEvents = false;
+                    KeySender.Mode = SendMode.VirtualKeys;
+                    SetSetting("SendMode", 0);
+                    return;
+                }
+                KeySender.Mode = SendMode.Driver;
+                SetSetting("SendMode", 2);
+            }
+            else if (rb == rbScan)
+            {
+                KeySender.Mode = SendMode.ScanCodes;
+                SetSetting("SendMode", 1);
+            }
+            else
+            {
+                KeySender.Mode = SendMode.VirtualKeys;
+                SetSetting("SendMode", 0);
+            }
+            statusTick = 999;
         }
 
         Button MakeButton(string text, int x, int y)
@@ -823,6 +1043,8 @@ LS_Right = Right | | hold
                     ? "Controller: connected (P" + (engine.ControllerIndex + 1) + ")"
                     : "Controller: NOT FOUND";
                 s += "   |   admin: " + (IsAdmin() ? "yes" : "no");
+                if (KeySender.Mode == SendMode.Driver)
+                    s += "   |   driver: " + Interception.Status;
                 s += "   |   keys sent: " + KeySender.KeysSent;
                 lblStatus.Text = s;
                 lblStatus.ForeColor = engine.Connected ? Color.FromArgb(150, 235, 100) : Color.IndianRed;
@@ -882,6 +1104,7 @@ LS_Right = Right | | hold
                 return;
             }
             engine.ReleaseAll();
+            Interception.Shutdown();
             tray.Visible = false;
             base.OnFormClosing(e);
         }
