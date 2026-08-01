@@ -255,11 +255,15 @@ namespace GolfDeck
             get { return Path.Combine(Dir, "mapping.txt"); }
         }
 
-        public const string DefaultMapping = @"# GolfDeck mapping
+        public const string DefaultMapping = @"# GolfDeck mapping (defaults = GSPro standard shortcuts)
+#
+# GSPro keys: U putt toggle, Y heat map, O flyover, J shot cam,
+#             I club up, K club down, A reset aim, Ctrl+M mulligan,
+#             arrow keys aim
 #
 # format:   input = keys | label | mode | repeat_ms
-#   keys:   single key or combo with +   (K, Ctrl+M, Shift+F5, ')
-#   label:  text shown on the board GUI
+#   keys:   single key or combo with +   (K, Ctrl+M, Shift+F5)
+#   label:  which printed board button this is (GUI matches by label)
 #   mode:   hold   = key held down while button held (default)
 #           tap    = one keypress per button press
 #           repeat = keypress repeats every repeat_ms while held
@@ -273,15 +277,14 @@ namespace GolfDeck
 stick_threshold = 37
 trigger_threshold = 25
 
-A       = K       | PUTT       | tap
-B       = I       | HEATMAP    | tap
-X       = U       | FLYOVER    | tap
-Y       = Y       | SHOTCAM    | tap
-LB      = O       | CLUB UP    | tap
-RB      = J       | CLUB DOWN  | tap
+X       = U       | PUTT       | tap
+Y       = Y       | HEATMAP    | tap
+LB      = O       | FLYOVER    | tap
+RB      = J       | SHOTCAM    | tap
+B       = I       | CLUB UP    | tap
+A       = K       | CLUB DOWN  | tap
 Menu    = A       | AIM POINT  | tap
 LT      = Ctrl+M  | MULLIGAN   | tap
-RT      = '       |            | repeat | 170
 
 LS_Up    = Up    | | hold
 LS_Down  = Down  | | hold
@@ -532,11 +535,11 @@ LS_Right = Right | | hold
 
         class Slot
         {
-            public string[] Inputs;
+            public string Label;      // labeled buttons: matched to mapping entries by label
+            public string[] Inputs;   // arrow buttons: matched by input
             public float X, Y;
             public bool Arrow;
             public string ArrowGlyph = "";
-            public Slot(float x, float y, params string[] inputs) { X = x; Y = y; Inputs = inputs; }
         }
 
         static readonly Color Green = Color.FromArgb(158, 232, 112);
@@ -556,25 +559,43 @@ LS_Right = Right | | hold
             ResizeRedraw = true;
             BackColor = Color.FromArgb(13, 13, 14);
 
-            // straight-on grid: 4 aligned columns, side columns aligned in rows,
-            // symmetric arrow diamond in the middle
-            slots.Add(new Slot(0.150f, 0.235f, "A"));
-            slots.Add(new Slot(0.383f, 0.235f, "B"));
-            slots.Add(new Slot(0.617f, 0.235f, "X"));
-            slots.Add(new Slot(0.850f, 0.235f, "Y"));
+            // straight-on grid mirroring the printed board: labels fixed to
+            // physical positions, mapping entries attach by label
+            AddBtn(0.150f, 0.235f, "PUTT");
+            AddBtn(0.383f, 0.235f, "HEATMAP");
+            AddBtn(0.617f, 0.235f, "FLYOVER");
+            AddBtn(0.850f, 0.235f, "SHOTCAM");
+            AddBtn(0.150f, 0.560f, "CLUB UP");
+            AddBtn(0.150f, 0.850f, "CLUB DOWN");
+            AddBtn(0.850f, 0.560f, "AIM POINT");
+            AddBtn(0.850f, 0.850f, "MULLIGAN");
 
-            slots.Add(new Slot(0.150f, 0.560f, "LB"));
-            slots.Add(new Slot(0.150f, 0.850f, "RB"));
-            slots.Add(new Slot(0.850f, 0.560f, "MENU"));
-            slots.Add(new Slot(0.850f, 0.850f, "LT"));
-
-            var up = new Slot(0.500f, 0.480f, "LS_UP", "DPAD_UP"); up.Arrow = true; up.ArrowGlyph = "▲"; slots.Add(up);
-            var lf = new Slot(0.402f, 0.665f, "LS_LEFT", "DPAD_LEFT"); lf.Arrow = true; lf.ArrowGlyph = "◀"; slots.Add(lf);
-            var rt = new Slot(0.598f, 0.665f, "LS_RIGHT", "DPAD_RIGHT"); rt.Arrow = true; rt.ArrowGlyph = "▶"; slots.Add(rt);
-            var dn = new Slot(0.500f, 0.850f, "LS_DOWN", "DPAD_DOWN"); dn.Arrow = true; dn.ArrowGlyph = "▼"; slots.Add(dn);
+            AddArrow(0.500f, 0.475f, "▲", "LS_UP", "DPAD_UP");
+            AddArrow(0.410f, 0.665f, "◀", "LS_LEFT", "DPAD_LEFT");
+            AddArrow(0.590f, 0.665f, "▶", "LS_RIGHT", "DPAD_RIGHT");
+            AddArrow(0.500f, 0.850f, "▼", "LS_DOWN", "DPAD_DOWN");
         }
 
-        MapEntry FindEntry(string[] inputs)
+        void AddBtn(float x, float y, string label)
+        {
+            var s = new Slot(); s.X = x; s.Y = y; s.Label = label; slots.Add(s);
+        }
+
+        void AddArrow(float x, float y, string glyph, params string[] inputs)
+        {
+            var s = new Slot(); s.X = x; s.Y = y; s.Arrow = true; s.ArrowGlyph = glyph; s.Inputs = inputs; slots.Add(s);
+        }
+
+        MapEntry FindByLabel(string label)
+        {
+            if (Engine == null) return null;
+            foreach (var e in Engine.Entries)
+                if (e.Label.Length > 0 && string.Equals(e.Label, label, StringComparison.OrdinalIgnoreCase))
+                    return e;
+            return null;
+        }
+
+        MapEntry FindByInput(string[] inputs)
         {
             if (Engine == null) return null;
             foreach (var inp in inputs)
@@ -606,18 +627,33 @@ LS_Right = Right | | hold
                 using (var pen = new Pen(Green, 3f)) g.DrawPath(pen, path);
             }
 
-            float r = board.Width * 0.049f;
+            float r = board.Width * 0.053f;
             if (r < 16) r = 16;
+
+            // center 4-way glyph between the arrow buttons
+            using (var br = new SolidBrush(Color.FromArgb(70, 105, 55)))
+            using (var f = new Font("Segoe UI Symbol", r * 0.34f, FontStyle.Bold))
+            {
+                var gsz = g.MeasureString("✥", f);
+                float gx = board.X + board.Width * 0.500f;
+                float gy = board.Y + board.Height * 0.665f;
+                g.DrawString("✥", f, br, gx - gsz.Width / 2f, gy - gsz.Height / 2f);
+            }
+
+            var used = new List<MapEntry>();
 
             foreach (var s in slots)
             {
                 float x = board.X + board.Width * s.X;
                 float y = board.Y + board.Height * s.Y;
-                var entry = FindEntry(s.Inputs);
-                bool pressed = IsPressed(s.Inputs);
+                var entry = s.Arrow ? FindByInput(s.Inputs) : FindByLabel(s.Label);
+                if (entry != null) used.Add(entry);
+                bool pressed = s.Arrow
+                    ? IsPressed(s.Inputs)
+                    : (entry != null && Engine != null && Engine.Pressed.Contains(entry.Input));
                 bool mapped = entry != null && entry.KeysText.Length > 0;
 
-                float rr = s.Arrow ? r * 0.72f : r;
+                float rr = s.Arrow ? r * 0.95f : r;
                 var rect = new RectangleF(x - rr, y - rr, rr * 2, rr * 2);
 
                 // press glow
@@ -664,23 +700,25 @@ LS_Right = Right | | hold
                     }
                 }
 
-                // label above
-                if (!s.Arrow && entry != null && entry.Label.Length > 0)
+                // label above (from the slot: physical board truth)
+                if (!s.Arrow)
                 {
-                    string label = entry.Label.ToUpperInvariant();
-                    using (var br = new SolidBrush(Green))
+                    using (var br = new SolidBrush(mapped ? Green : GreenDim))
                     {
-                        var sz = g.MeasureString(label, labelFont);
-                        g.DrawString(label, labelFont, br, x - sz.Width / 2f, y - rr - sz.Height - 6);
+                        var sz = g.MeasureString(s.Label, labelFont);
+                        g.DrawString(s.Label, labelFont, br, x - sz.Width / 2f, y - rr - sz.Height - 6);
                     }
                 }
 
-                // key caption below
-                string cap = mapped ? entry.KeysText.ToUpperInvariant() : "--";
-                using (var br = new SolidBrush(pressed ? Green : GreenDim))
+                // key caption below (labeled buttons only; arrows are self-evident)
+                if (!s.Arrow)
                 {
-                    var sz = g.MeasureString(cap, keyFont);
-                    g.DrawString(cap, keyFont, br, x - sz.Width / 2f, y + rr + 7);
+                    string cap = mapped ? entry.KeysText.ToUpperInvariant() : "--";
+                    using (var br = new SolidBrush(pressed ? Green : GreenDim))
+                    {
+                        var sz = g.MeasureString(cap, keyFont);
+                        g.DrawString(cap, keyFont, br, x - sz.Width / 2f, y + rr + 7);
+                    }
                 }
             }
 
@@ -688,15 +726,13 @@ LS_Right = Right | | hold
             using (var br = new SolidBrush(Color.FromArgb(60, 88, 48)))
                 g.DrawString("GOLFDECK", markFont, br, board.X + 18, board.Y + 12);
 
-            // entries with no slot on the board (e.g. RT) as chips top-right
+            // entries not attached to any board slot as chips top-right
             if (Engine != null)
             {
-                var slotInputs = new HashSet<string>();
-                foreach (var s in slots) foreach (var i in s.Inputs) slotInputs.Add(i);
                 float ty = board.Y + 12;
                 foreach (var e in Engine.Entries)
                 {
-                    if (slotInputs.Contains(e.Input)) continue;
+                    if (used.Contains(e)) continue;
                     string txt = e.Input + "  =  " + e.KeysText + (e.Mode == "repeat" ? "  (repeat)" : "");
                     bool on = Engine.Pressed.Contains(e.Input);
                     var sz = g.MeasureString(txt, smallFont);
@@ -738,6 +774,30 @@ LS_Right = Right | | hold
         }
     }
 
+    // ---------------- app icon (generated: green button on dark) ----------------
+
+    static class AppIcon
+    {
+        static Icon icon;
+
+        public static Icon Get()
+        {
+            if (icon != null) return icon;
+            using (var bmp = new Bitmap(32, 32))
+            using (var g = Graphics.FromImage(bmp))
+            {
+                g.SmoothingMode = SmoothingMode.AntiAlias;
+                g.Clear(Color.FromArgb(20, 20, 22));
+                using (var pen = new Pen(Color.FromArgb(158, 232, 112), 3f))
+                    g.DrawEllipse(pen, 3, 3, 26, 26);
+                using (var br = new SolidBrush(Color.FromArgb(120, 210, 80)))
+                    g.FillEllipse(br, 9, 9, 14, 14);
+                icon = Icon.FromHandle(bmp.GetHicon());
+            }
+            return icon;
+        }
+    }
+
     // ---------------- main form ----------------
 
     class MainForm : Form
@@ -767,6 +827,8 @@ LS_Right = Right | | hold
             FormBorderStyle = FormBorderStyle.FixedSingle;
             MaximizeBox = false;
             StartPosition = FormStartPosition.CenterScreen;
+
+            Icon = AppIcon.Get();
 
             board = new BoardPanel();
             board.Engine = engine;
@@ -843,7 +905,7 @@ LS_Right = Right | | hold
 
             // tray
             tray = new NotifyIcon();
-            tray.Icon = SystemIcons.Application;
+            tray.Icon = AppIcon.Get();
             tray.Text = "GolfDeck";
             tray.Visible = true;
             var menu = new ContextMenuStrip();
