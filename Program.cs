@@ -91,134 +91,9 @@ namespace GolfDeck
         public InputUnion U;
     }
 
-    // ---------------- Interception driver (github.com/oblitum/Interception) ----------------
-    // Direct P/Invoke of interception.dll — same driver AutoHotInterception wraps,
-    // no AutoHotkey needed. Keystrokes appear to come from a real keyboard device.
-
-    [StructLayout(LayoutKind.Sequential)]
-    struct InterceptionKeyStroke
-    {
-        public ushort code;
-        public ushort state;
-        public uint information;
-    }
-
-    [StructLayout(LayoutKind.Sequential)]
-    struct InterceptionMouseStroke
-    {
-        public ushort state;
-        public ushort flags;
-        public short rolling;
-        public int x;
-        public int y;
-        public uint information;
-    }
-
-    [StructLayout(LayoutKind.Explicit)]
-    struct InterceptionStroke
-    {
-        [FieldOffset(0)] public InterceptionKeyStroke key;
-        [FieldOffset(0)] public InterceptionMouseStroke mouse;
-    }
-
-    static class Interception
-    {
-        [DllImport("interception.dll", CallingConvention = CallingConvention.Cdecl)]
-        static extern IntPtr interception_create_context();
-
-        [DllImport("interception.dll", CallingConvention = CallingConvention.Cdecl)]
-        static extern void interception_destroy_context(IntPtr ctx);
-
-        [DllImport("interception.dll", CallingConvention = CallingConvention.Cdecl)]
-        static extern int interception_send(IntPtr ctx, int device, ref InterceptionStroke stroke, uint n);
-
-        [DllImport("interception.dll", CallingConvention = CallingConvention.Cdecl)]
-        static extern uint interception_get_hardware_id(IntPtr ctx, int device, IntPtr buffer, uint size);
-
-        const ushort KEY_DOWN = 0x00;
-        const ushort KEY_UP = 0x01;
-        const ushort KEY_E0 = 0x02;
-
-        static IntPtr ctx = IntPtr.Zero;
-        static int kbdDevice;
-
-        public static bool Available;
-        public static string Status = "off";
-
-        public static bool Init()
-        {
-            if (Available) return true;
-            try
-            {
-                ctx = interception_create_context();
-            }
-            catch (DllNotFoundException)
-            {
-                Status = "interception.dll not next to exe";
-                return false;
-            }
-            catch (Exception ex)
-            {
-                Status = "dll error: " + ex.Message;
-                return false;
-            }
-            if (ctx == IntPtr.Zero)
-            {
-                Status = "driver not installed";
-                return false;
-            }
-
-            // find a real keyboard: devices 1..10 are keyboards, connected ones have a hardware id
-            kbdDevice = 0;
-            IntPtr buf = Marshal.AllocHGlobal(512);
-            try
-            {
-                for (int d = 1; d <= 10; d++)
-                {
-                    uint len = interception_get_hardware_id(ctx, d, buf, 512);
-                    if (len > 0) { kbdDevice = d; break; }
-                }
-            }
-            finally { Marshal.FreeHGlobal(buf); }
-
-            if (kbdDevice == 0)
-            {
-                Status = "no keyboard device found";
-                interception_destroy_context(ctx);
-                ctx = IntPtr.Zero;
-                return false;
-            }
-
-            Available = true;
-            Status = "ok (keyboard " + kbdDevice + ")";
-            return true;
-        }
-
-        public static void SendKey(ushort scan, bool e0, bool down)
-        {
-            if (!Available) return;
-            var s = new InterceptionStroke();
-            s.key.code = scan;
-            s.key.state = (ushort)((down ? KEY_DOWN : KEY_UP) | (e0 ? KEY_E0 : 0));
-            s.key.information = 0;
-            interception_send(ctx, kbdDevice, ref s, 1);
-        }
-
-        public static void Shutdown()
-        {
-            if (ctx != IntPtr.Zero)
-            {
-                interception_destroy_context(ctx);
-                ctx = IntPtr.Zero;
-                Available = false;
-                Status = "off";
-            }
-        }
-    }
-
     // ---------------- key sending ----------------
 
-    enum SendMode { VirtualKeys = 0, ScanCodes = 1, Driver = 2 }
+    enum SendMode { VirtualKeys = 0, ScanCodes = 1 }
 
     struct KeyEv
     {
@@ -273,16 +148,6 @@ namespace GolfDeck
         static void Emit(List<KeyEv> seq)
         {
             if (seq.Count == 0) return;
-            if (Mode == SendMode.Driver && Interception.Available)
-            {
-                foreach (var ev in seq)
-                {
-                    ushort scan = (ushort)MapVirtualKey(ev.Vk, 0);
-                    Interception.SendKey(scan, extended.Contains(ev.Vk), ev.Down);
-                }
-                KeysSent += seq.Count;
-                return;
-            }
             var arr = new INPUT[seq.Count];
             for (int i = 0; i < seq.Count; i++) arr[i] = Make(seq[i].Vk, seq[i].Down);
             SendInput((uint)arr.Length, arr, Marshal.SizeOf(typeof(INPUT)));
@@ -674,35 +539,39 @@ LS_Right = Right | | hold
             public Slot(float x, float y, params string[] inputs) { X = x; Y = y; Inputs = inputs; }
         }
 
-        static readonly Color Green = Color.FromArgb(150, 235, 100);
-        static readonly Color GreenDim = Color.FromArgb(95, 150, 70);
-        static readonly Color BoardBg = Color.FromArgb(24, 24, 26);
-        static readonly Color BtnRing = Color.FromArgb(12, 12, 12);
+        static readonly Color Green = Color.FromArgb(158, 232, 112);
+        static readonly Color GreenDim = Color.FromArgb(96, 142, 74);
+        static readonly Color BoardBg = Color.FromArgb(26, 27, 29);
+        static readonly Color BtnRing = Color.FromArgb(10, 10, 11);
 
         List<Slot> slots = new List<Slot>();
-        Font labelFont = new Font("Segoe UI", 10.5f, FontStyle.Bold | FontStyle.Italic);
-        Font keyFont = new Font("Consolas", 8.5f, FontStyle.Bold);
-        Font smallFont = new Font("Segoe UI", 8f);
+        Font labelFont = new Font("Segoe UI", 11f, FontStyle.Bold | FontStyle.Italic);
+        Font keyFont = new Font("Consolas", 9f, FontStyle.Bold);
+        Font smallFont = new Font("Segoe UI", 8.5f);
+        Font markFont = new Font("Segoe UI", 9f, FontStyle.Bold | FontStyle.Italic);
 
         public BoardPanel()
         {
             DoubleBuffered = true;
             ResizeRedraw = true;
-            BackColor = Color.FromArgb(14, 14, 15);
+            BackColor = Color.FromArgb(13, 13, 14);
 
-            slots.Add(new Slot(0.155f, 0.235f, "A"));
-            slots.Add(new Slot(0.385f, 0.235f, "B"));
-            slots.Add(new Slot(0.615f, 0.235f, "X"));
-            slots.Add(new Slot(0.845f, 0.235f, "Y"));
-            slots.Add(new Slot(0.145f, 0.535f, "LB"));
-            slots.Add(new Slot(0.125f, 0.835f, "RB"));
-            slots.Add(new Slot(0.855f, 0.535f, "MENU"));
-            slots.Add(new Slot(0.875f, 0.835f, "LT"));
+            // straight-on grid: 4 aligned columns, side columns aligned in rows,
+            // symmetric arrow diamond in the middle
+            slots.Add(new Slot(0.150f, 0.235f, "A"));
+            slots.Add(new Slot(0.383f, 0.235f, "B"));
+            slots.Add(new Slot(0.617f, 0.235f, "X"));
+            slots.Add(new Slot(0.850f, 0.235f, "Y"));
 
-            var up = new Slot(0.50f, 0.46f, "LS_UP", "DPAD_UP"); up.Arrow = true; up.ArrowGlyph = "▲"; slots.Add(up);
-            var lf = new Slot(0.385f, 0.625f, "LS_LEFT", "DPAD_LEFT"); lf.Arrow = true; lf.ArrowGlyph = "◀"; slots.Add(lf);
-            var rt = new Slot(0.615f, 0.625f, "LS_RIGHT", "DPAD_RIGHT"); rt.Arrow = true; rt.ArrowGlyph = "▶"; slots.Add(rt);
-            var dn = new Slot(0.50f, 0.79f, "LS_DOWN", "DPAD_DOWN"); dn.Arrow = true; dn.ArrowGlyph = "▼"; slots.Add(dn);
+            slots.Add(new Slot(0.150f, 0.560f, "LB"));
+            slots.Add(new Slot(0.150f, 0.850f, "RB"));
+            slots.Add(new Slot(0.850f, 0.560f, "MENU"));
+            slots.Add(new Slot(0.850f, 0.850f, "LT"));
+
+            var up = new Slot(0.500f, 0.480f, "LS_UP", "DPAD_UP"); up.Arrow = true; up.ArrowGlyph = "▲"; slots.Add(up);
+            var lf = new Slot(0.402f, 0.665f, "LS_LEFT", "DPAD_LEFT"); lf.Arrow = true; lf.ArrowGlyph = "◀"; slots.Add(lf);
+            var rt = new Slot(0.598f, 0.665f, "LS_RIGHT", "DPAD_RIGHT"); rt.Arrow = true; rt.ArrowGlyph = "▶"; slots.Add(rt);
+            var dn = new Slot(0.500f, 0.850f, "LS_DOWN", "DPAD_DOWN"); dn.Arrow = true; dn.ArrowGlyph = "▼"; slots.Add(dn);
         }
 
         MapEntry FindEntry(string[] inputs)
@@ -729,26 +598,16 @@ LS_Right = Right | | hold
             g.SmoothingMode = SmoothingMode.AntiAlias;
             g.TextRenderingHint = System.Drawing.Text.TextRenderingHint.ClearTypeGridFit;
 
-            int pad = 12;
+            int pad = 14;
             var board = new Rectangle(pad, pad, Width - pad * 2, Height - pad * 2);
-            using (var path = Rounded(board, 22))
+            using (var path = Rounded(board, 26))
             {
                 using (var br = new SolidBrush(BoardBg)) g.FillPath(br, path);
                 using (var pen = new Pen(Green, 3f)) g.DrawPath(pen, path);
             }
 
-            float r = board.Width * 0.048f;
+            float r = board.Width * 0.049f;
             if (r < 16) r = 16;
-
-            // center cross glyph
-            float cx = board.X + board.Width * 0.50f;
-            float cy = board.Y + board.Height * 0.625f;
-            using (var br = new SolidBrush(GreenDim))
-            using (var f = new Font("Segoe UI Symbol", r * 0.55f, FontStyle.Bold))
-            {
-                var sz = g.MeasureString("✥", f);
-                g.DrawString("✥", f, br, cx - sz.Width / 2f, cy - sz.Height / 2f);
-            }
 
             foreach (var s in slots)
             {
@@ -758,23 +617,47 @@ LS_Right = Right | | hold
                 bool pressed = IsPressed(s.Inputs);
                 bool mapped = entry != null && entry.KeysText.Length > 0;
 
-                // button
-                float rr = s.Arrow ? r * 0.85f : r;
+                float rr = s.Arrow ? r * 0.72f : r;
                 var rect = new RectangleF(x - rr, y - rr, rr * 2, rr * 2);
+
+                // press glow
+                if (pressed)
+                {
+                    for (int i = 3; i >= 1; i--)
+                    {
+                        using (var glow = new SolidBrush(Color.FromArgb(22, Green)))
+                            g.FillEllipse(glow, x - rr - i * 5, y - rr - i * 5, (rr + i * 5) * 2, (rr + i * 5) * 2);
+                    }
+                }
+
+                // bezel ring + drop shadow
                 using (var ring = new SolidBrush(BtnRing))
-                    g.FillEllipse(ring, rect.X - 5, rect.Y - 4, rect.Width + 10, rect.Height + 10);
-                using (var face = new LinearGradientBrush(rect,
-                    pressed ? Color.FromArgb(90, 190, 60) : Color.FromArgb(52, 52, 55),
-                    pressed ? Color.FromArgb(40, 110, 25) : Color.FromArgb(22, 22, 24), 70f))
+                    g.FillEllipse(ring, rect.X - 5, rect.Y - 3, rect.Width + 10, rect.Height + 11);
+
+                // dome face
+                using (var face = new LinearGradientBrush(
+                    new RectangleF(rect.X, rect.Y - 2, rect.Width, rect.Height + 4),
+                    pressed ? Color.FromArgb(112, 205, 72) : Color.FromArgb(58, 58, 62),
+                    pressed ? Color.FromArgb(38, 100, 22) : Color.FromArgb(20, 20, 22),
+                    LinearGradientMode.Vertical))
                     g.FillEllipse(face, rect);
-                using (var pen = new Pen(pressed ? Green : Color.FromArgb(70, 70, 74), 2f))
+
+                // top highlight
+                using (var hl = new LinearGradientBrush(
+                    new RectangleF(rect.X, rect.Y, rect.Width, rect.Height * 0.55f + 1),
+                    Color.FromArgb(pressed ? 90 : 55, 255, 255, 255),
+                    Color.FromArgb(0, 255, 255, 255),
+                    LinearGradientMode.Vertical))
+                    g.FillEllipse(hl, rect.X + rr * 0.22f, rect.Y + rr * 0.10f, rr * 1.56f, rr * 1.0f);
+
+                using (var pen = new Pen(pressed ? Green : Color.FromArgb(74, 74, 80), 1.6f))
                     g.DrawEllipse(pen, rect);
 
-                // arrow glyph on center-cluster buttons
+                // arrow glyph
                 if (s.Arrow)
                 {
-                    using (var br = new SolidBrush(pressed ? Color.Black : GreenDim))
-                    using (var f = new Font("Segoe UI Symbol", rr * 0.5f, FontStyle.Bold))
+                    using (var br = new SolidBrush(pressed ? Color.FromArgb(16, 24, 10) : GreenDim))
+                    using (var f = new Font("Segoe UI Symbol", rr * 0.52f, FontStyle.Bold))
                     {
                         var sz = g.MeasureString(s.ArrowGlyph, f);
                         g.DrawString(s.ArrowGlyph, f, br, x - sz.Width / 2f, y - sz.Height / 2f + 1);
@@ -782,16 +665,13 @@ LS_Right = Right | | hold
                 }
 
                 // label above
-                if (!s.Arrow)
+                if (!s.Arrow && entry != null && entry.Label.Length > 0)
                 {
-                    string label = entry != null && entry.Label.Length > 0 ? entry.Label : "";
-                    if (label.Length > 0)
+                    string label = entry.Label.ToUpperInvariant();
+                    using (var br = new SolidBrush(Green))
                     {
-                        using (var br = new SolidBrush(Green))
-                        {
-                            var sz = g.MeasureString(label.ToUpperInvariant(), labelFont);
-                            g.DrawString(label.ToUpperInvariant(), labelFont, br, x - sz.Width / 2f, y - rr - sz.Height - 4);
-                        }
+                        var sz = g.MeasureString(label, labelFont);
+                        g.DrawString(label, labelFont, br, x - sz.Width / 2f, y - rr - sz.Height - 6);
                     }
                 }
 
@@ -800,29 +680,53 @@ LS_Right = Right | | hold
                 using (var br = new SolidBrush(pressed ? Green : GreenDim))
                 {
                     var sz = g.MeasureString(cap, keyFont);
-                    g.DrawString(cap, keyFont, br, x - sz.Width / 2f, y + rr + 4);
+                    g.DrawString(cap, keyFont, br, x - sz.Width / 2f, y + rr + 7);
                 }
             }
 
-            // entries with no slot on the board (e.g. RT)
+            // wordmark top-left
+            using (var br = new SolidBrush(Color.FromArgb(60, 88, 48)))
+                g.DrawString("GOLFDECK", markFont, br, board.X + 18, board.Y + 12);
+
+            // entries with no slot on the board (e.g. RT) as chips top-right
             if (Engine != null)
             {
                 var slotInputs = new HashSet<string>();
                 foreach (var s in slots) foreach (var i in s.Inputs) slotInputs.Add(i);
-                float ty = board.Bottom - 22;
+                float ty = board.Y + 12;
                 foreach (var e in Engine.Entries)
                 {
                     if (slotInputs.Contains(e.Input)) continue;
-                    string txt = e.Input + " = " + e.KeysText + (e.Mode == "repeat" ? "  (repeat " + e.RepeatMs + "ms)" : "");
+                    string txt = e.Input + "  =  " + e.KeysText + (e.Mode == "repeat" ? "  (repeat)" : "");
                     bool on = Engine.Pressed.Contains(e.Input);
+                    var sz = g.MeasureString(txt, smallFont);
+                    var chip = new RectangleF(board.Right - sz.Width - 18 - 16, ty, sz.Width + 18, 22);
+                    using (var cp = RoundedF(chip, 10))
+                    {
+                        using (var bg = new SolidBrush(on ? Color.FromArgb(70, 158, 232, 112) : Color.FromArgb(34, 35, 37)))
+                            g.FillPath(bg, cp);
+                        using (var pen = new Pen(on ? Green : Color.FromArgb(58, 60, 62), 1f))
+                            g.DrawPath(pen, cp);
+                    }
                     using (var br = new SolidBrush(on ? Green : GreenDim))
-                        g.DrawString(txt, smallFont, br, board.X + 14, ty);
-                    ty -= 16;
+                        g.DrawString(txt, smallFont, br, chip.X + 9, chip.Y + 3);
+                    ty += 28;
                 }
             }
         }
 
         static GraphicsPath Rounded(Rectangle r, int rad)
+        {
+            var p = new GraphicsPath();
+            p.AddArc(r.X, r.Y, rad, rad, 180, 90);
+            p.AddArc(r.Right - rad, r.Y, rad, rad, 270, 90);
+            p.AddArc(r.Right - rad, r.Bottom - rad, rad, rad, 0, 90);
+            p.AddArc(r.X, r.Bottom - rad, rad, rad, 90, 90);
+            p.CloseFigure();
+            return p;
+        }
+
+        static GraphicsPath RoundedF(RectangleF r, int rad)
         {
             var p = new GraphicsPath();
             p.AddArc(r.X, r.Y, rad, rad, 180, 90);
@@ -847,8 +751,8 @@ LS_Right = Right | | hold
         System.Windows.Forms.Timer timer;
         NotifyIcon tray;
         CheckBox chkAutostart;
-        RadioButton rbVk, rbScan, rbDriver;
-        Label lblStatus;
+        RadioButton rbVk, rbScan;
+        Label lblConn, lblInfo;
         bool exiting;
         bool startMinimized;
         bool suppressModeEvents;
@@ -858,26 +762,31 @@ LS_Right = Right | | hold
         {
             startMinimized = minimized;
             Text = "GolfDeck";
-            BackColor = Color.FromArgb(14, 14, 15);
-            ClientSize = new Size(680, 570);
+            BackColor = Color.FromArgb(13, 13, 14);
+            ClientSize = new Size(700, 590);
             FormBorderStyle = FormBorderStyle.FixedSingle;
             MaximizeBox = false;
             StartPosition = FormStartPosition.CenterScreen;
 
             board = new BoardPanel();
             board.Engine = engine;
-            board.Bounds = new Rectangle(0, 0, 680, 470);
+            board.Bounds = new Rectangle(0, 0, 700, 478);
             Controls.Add(board);
 
             var bottom = new Panel();
-            bottom.Bounds = new Rectangle(0, 470, 680, 100);
-            bottom.BackColor = Color.FromArgb(20, 20, 22);
+            bottom.Bounds = new Rectangle(0, 478, 700, 112);
+            bottom.BackColor = Color.FromArgb(19, 19, 21);
+            bottom.Paint += delegate(object s, PaintEventArgs e)
+            {
+                using (var pen = new Pen(Color.FromArgb(44, 46, 48), 1f))
+                    e.Graphics.DrawLine(pen, 0, 0, bottom.Width, 0);
+            };
             Controls.Add(bottom);
 
             chkAutostart = new CheckBox();
             chkAutostart.Text = "Start with Windows";
             chkAutostart.ForeColor = Color.Gainsboro;
-            chkAutostart.Location = new Point(16, 8);
+            chkAutostart.Location = new Point(18, 12);
             chkAutostart.AutoSize = true;
             chkAutostart.Checked = GetAutostart();
             chkAutostart.CheckedChanged += delegate { SetAutostart(chkAutostart.Checked); };
@@ -885,42 +794,42 @@ LS_Right = Right | | hold
 
             var lblMode = new Label();
             lblMode.Text = "Key send:";
-            lblMode.ForeColor = Color.Gainsboro;
-            lblMode.Location = new Point(16, 38);
+            lblMode.ForeColor = Color.FromArgb(150, 150, 155);
+            lblMode.Location = new Point(18, 45);
             lblMode.AutoSize = true;
             bottom.Controls.Add(lblMode);
 
-            rbVk = MakeRadio("Virtual keys", 92, 36);
-            rbScan = MakeRadio("Scancodes", 196, 36);
-            rbDriver = MakeRadio("Driver (Interception)", 296, 36);
+            rbVk = MakeRadio("Virtual keys", 98, 43);
+            rbScan = MakeRadio("Scancodes", 205, 43);
             bottom.Controls.Add(rbVk);
             bottom.Controls.Add(rbScan);
-            bottom.Controls.Add(rbDriver);
 
-            var btnEdit = MakeButton("Edit mapping", 470, 8);
+            var btnEdit = MakeButton("Edit mapping", 500, 10);
             btnEdit.Click += delegate { Process.Start("notepad.exe", "\"" + Config.MappingPath + "\""); };
             bottom.Controls.Add(btnEdit);
 
-            var btnReload = MakeButton("Reload mapping", 470, 38);
+            var btnReload = MakeButton("Reload mapping", 500, 44);
             btnReload.Click += delegate { LoadMapping(true); };
             bottom.Controls.Add(btnReload);
 
-            lblStatus = new Label();
-            lblStatus.ForeColor = Color.Gray;
-            lblStatus.Location = new Point(16, 70);
-            lblStatus.AutoSize = true;
-            lblStatus.Text = "starting...";
-            bottom.Controls.Add(lblStatus);
+            lblConn = new Label();
+            lblConn.Location = new Point(18, 82);
+            lblConn.AutoSize = true;
+            lblConn.Text = "● starting...";
+            lblConn.ForeColor = Color.Gray;
+            bottom.Controls.Add(lblConn);
 
-            // restore saved send mode without popping dialogs at startup
+            lblInfo = new Label();
+            lblInfo.Location = new Point(180, 82);
+            lblInfo.AutoSize = true;
+            lblInfo.Text = "";
+            lblInfo.ForeColor = Color.FromArgb(130, 130, 135);
+            bottom.Controls.Add(lblInfo);
+
+            // restore saved send mode
             int mode = GetSetting("SendMode", 0);
             suppressModeEvents = true;
-            if (mode == 2 && Interception.Init())
-            {
-                KeySender.Mode = SendMode.Driver;
-                rbDriver.Checked = true;
-            }
-            else if (mode == 1)
+            if (mode == 1)
             {
                 KeySender.Mode = SendMode.ScanCodes;
                 rbScan.Checked = true;
@@ -953,6 +862,15 @@ LS_Right = Right | | hold
             timer.Start();
         }
 
+        public void DemoPress(string csv)
+        {
+            timer.Stop(); // freeze state so screenshot shows the demo presses
+            foreach (var s in csv.Split(','))
+                engine.Pressed.Add(s.Trim().ToUpperInvariant());
+            UpdateStatus();
+            board.Invalidate();
+        }
+
         RadioButton MakeRadio(string text, int x, int y)
         {
             var r = new RadioButton();
@@ -970,31 +888,7 @@ LS_Right = Right | | hold
             var rb = (RadioButton)sender;
             if (!rb.Checked) return;
 
-            if (rb == rbDriver)
-            {
-                if (!Interception.Init())
-                {
-                    MessageBox.Show(this,
-                        "Driver mode sends keystrokes through the Interception kernel driver, " +
-                        "so they look like real keyboard hardware. One-time setup:\r\n\r\n" +
-                        "1. Download Interception.zip from github.com/oblitum/Interception (Releases).\r\n" +
-                        "2. Admin command prompt:  install-interception.exe /install\r\n" +
-                        "3. Reboot.\r\n" +
-                        "4. Copy library\\x64\\interception.dll next to GolfDeck.exe.\r\n" +
-                        "5. Select this mode again.\r\n\r\n" +
-                        "Current problem: " + Interception.Status,
-                        "Interception not ready", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-                    suppressModeEvents = true;
-                    rbVk.Checked = true;
-                    suppressModeEvents = false;
-                    KeySender.Mode = SendMode.VirtualKeys;
-                    SetSetting("SendMode", 0);
-                    return;
-                }
-                KeySender.Mode = SendMode.Driver;
-                SetSetting("SendMode", 2);
-            }
-            else if (rb == rbScan)
+            if (rb == rbScan)
             {
                 KeySender.Mode = SendMode.ScanCodes;
                 SetSetting("SendMode", 1);
@@ -1011,11 +905,12 @@ LS_Right = Right | | hold
         {
             var b = new Button();
             b.Text = text;
-            b.Bounds = new Rectangle(x, y, 180, 26);
+            b.Bounds = new Rectangle(x, y, 180, 28);
             b.FlatStyle = FlatStyle.Flat;
             b.ForeColor = Color.Gainsboro;
-            b.BackColor = Color.FromArgb(38, 38, 42);
-            b.FlatAppearance.BorderColor = Color.FromArgb(70, 70, 74);
+            b.BackColor = Color.FromArgb(36, 37, 40);
+            b.FlatAppearance.BorderColor = Color.FromArgb(64, 66, 70);
+            b.FlatAppearance.MouseOverBackColor = Color.FromArgb(48, 50, 54);
             return b;
         }
 
@@ -1039,16 +934,26 @@ LS_Right = Right | | hold
             if (statusTick >= 50) // every ~0.5s
             {
                 statusTick = 0;
-                string s = engine.Connected
-                    ? "Controller: connected (P" + (engine.ControllerIndex + 1) + ")"
-                    : "Controller: NOT FOUND";
-                s += "   |   admin: " + (IsAdmin() ? "yes" : "no");
-                if (KeySender.Mode == SendMode.Driver)
-                    s += "   |   driver: " + Interception.Status;
-                s += "   |   keys sent: " + KeySender.KeysSent;
-                lblStatus.Text = s;
-                lblStatus.ForeColor = engine.Connected ? Color.FromArgb(150, 235, 100) : Color.IndianRed;
+                UpdateStatus();
             }
+        }
+
+        void UpdateStatus()
+        {
+            if (engine.Connected)
+            {
+                lblConn.Text = "●  Controller connected (P" + (engine.ControllerIndex + 1) + ")";
+                lblConn.ForeColor = Color.FromArgb(158, 232, 112);
+            }
+            else
+            {
+                lblConn.Text = "●  Controller not found";
+                lblConn.ForeColor = Color.FromArgb(220, 95, 90);
+            }
+            lblInfo.Left = lblConn.Right + 16;
+            lblInfo.Text = "admin: " + (IsAdmin() ? "yes" : "no")
+                + "      mode: " + (KeySender.Mode == SendMode.ScanCodes ? "scancodes" : "virtual keys")
+                + "      keys sent: " + KeySender.KeysSent;
         }
 
         static bool IsAdmin()
@@ -1104,7 +1009,6 @@ LS_Right = Right | | hold
                 return;
             }
             engine.ReleaseAll();
-            Interception.Shutdown();
             tray.Visible = false;
             base.OnFormClosing(e);
         }
@@ -1163,10 +1067,12 @@ LS_Right = Right | | hold
 
             bool minimized = false;
             string screenshot = null;
+            string press = null;
             for (int i = 0; i < args.Length; i++)
             {
                 if (args[i] == "--minimized") minimized = true;
                 else if (args[i] == "--screenshot" && i + 1 < args.Length) screenshot = args[++i];
+                else if (args[i] == "--press" && i + 1 < args.Length) press = args[++i];
             }
 
             if (!File.Exists(Config.MappingPath))
@@ -1179,6 +1085,7 @@ LS_Right = Right | | hold
                 form.StartPosition = FormStartPosition.Manual;
                 form.Location = new Point(-4000, -4000);
                 form.Show();
+                if (press != null) form.DemoPress(press);
                 Application.DoEvents();
                 using (var bmp = new Bitmap(form.Width, form.Height))
                 {

@@ -13,21 +13,8 @@ If GSPro runs elevated, use the tray menu "Restart as administrator" so keystrok
 
 ## Key send modes
 
-Three modes, selectable at the bottom of the window:
-
 - **Virtual keys** - normal SendInput. Default.
-- **Scancodes** - SendInput with scancodes only. Try this first if GSPro ignores keys that Notepad receives.
-- **Driver (Interception)** - keystrokes go through the Interception kernel driver and look like real keyboard hardware. Cannot be filtered by the game. GolfDeck talks to the driver directly; AutoHotkey/AutoHotInterception is not needed.
-
-Driver mode needs a one-time setup on the sim PC:
-
-1. Download `Interception.zip` from https://github.com/oblitum/Interception (Releases page).
-2. In an admin command prompt run: `install-interception.exe /install`
-3. Reboot.
-4. Copy `library\x64\interception.dll` from the zip next to `GolfDeck.exe`.
-5. Select "Driver (Interception)" in GolfDeck. The status line shows `driver: ok (keyboard N)` when working.
-
-The Interception driver is free for personal use. Note: with the driver installed, a real keyboard must be plugged in (keystrokes are sent through the first detected keyboard device).
+- **Scancodes** - SendInput with scancodes only. Try this if GSPro ignores keys that Notepad receives.
 
 ## Mapping
 
