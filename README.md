@@ -5,9 +5,11 @@ Companion app for the 3D-printed golf control box (hacked Xbox controller). Read
 ## Use
 
 1. Copy `GolfDeck.exe` to the sim PC (any folder).
-2. Run it. `mapping.txt` is created next to the exe on first run.
-3. The window mirrors the physical board. Buttons light up when pressed, so it doubles as a wiring tester.
+2. Run it. First launch asks which board layout you have (V1 = PUTT top-left, V2 = SCORECARD top-left) and writes a `mapping.txt` with that layout's GSPro default keys.
+3. The window mirrors the physical board. Buttons light up when pressed, so it doubles as a wiring tester. Clicking an on-screen button sends its key (note: the click focuses GolfDeck itself, so use it to verify sending works, not to drive GSPro).
 4. Tick "Start with Windows" to auto-start minimized to tray. Close button hides to tray; exit from the tray icon.
+
+The Options button holds the board layout switch, edition presets (Original, Green Jacket, Red & White, Red White & Blue), and individual board/button/letter colours.
 
 If GSPro runs elevated, use the tray menu "Restart as administrator" so keystrokes are not blocked by UIPI.
 

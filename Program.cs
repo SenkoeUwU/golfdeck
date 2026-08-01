@@ -116,6 +116,7 @@ namespace GolfDeck
 
         public static SendMode Mode = SendMode.VirtualKeys;
         public static long KeysSent = 0;
+        public static string LastSent = "";
 
         // keys that need the extended-key flag (arrows, nav cluster, win keys)
         static readonly HashSet<ushort> extended = new HashSet<ushort>
@@ -255,7 +256,41 @@ namespace GolfDeck
             get { return Path.Combine(Dir, "mapping.txt"); }
         }
 
-        public const string DefaultMapping = @"# GolfDeck mapping (defaults = GSPro standard shortcuts)
+        public static string DefaultFor(int layout)
+        {
+            return layout == 1 ? DefaultMappingV2 : DefaultMappingV1;
+        }
+
+        public const string DefaultMappingV2 = @"# GolfDeck mapping - V2 board (defaults = GSPro standard shortcuts)
+#
+# GSPro keys: T scorecard, Space fast forward, Y heat map, H hide UI,
+#             J shot cam, Ctrl+M mulligan, U putt toggle, O flyover,
+#             arrow keys aim
+# green print on the box (C/S/T/WAKE) marks hardware secondary functions
+#
+# format:   input = keys | label | mode | repeat_ms
+#   (see the V1 template or README for details)
+#
+# settings (percent):
+stick_threshold = 37
+trigger_threshold = 25
+
+X       = T       | SCORECARD   | tap
+Y       = Space   | FAST FWD    | tap
+LB      = Y       | HEATMAP     | tap
+RB      = H       | HIDE OBJECT | tap
+B       = J       | SHOTCAM     | tap
+Menu    = Ctrl+M  | MULLIGAN    | tap
+A       = U       | PUTT        | tap
+LT      = O       | FLYOVER     | tap
+
+LS_Up    = Up    | | hold
+LS_Down  = Down  | | hold
+LS_Left  = Left  | | hold
+LS_Right = Right | | hold
+";
+
+        public const string DefaultMappingV1 = @"# GolfDeck mapping - V1 board (defaults = GSPro standard shortcuts)
 #
 # GSPro keys: U putt toggle, Y heat map, O flyover, J shot cam,
 #             I club up, K club down, A reset aim, Ctrl+M mulligan,
@@ -446,6 +481,8 @@ LS_Right = Right | | hold
 
         void Step(MapEntry e, bool down)
         {
+            if (down && !e.WasDown && e.KeysText.Length > 0)
+                KeySender.LastSent = e.KeysText.ToUpperInvariant();
             if (e.Mode == "hold")
             {
                 if (down && !e.WasDown)
@@ -527,13 +564,32 @@ LS_Right = Right | | hold
         }
     }
 
+    // ---------------- app state ----------------
+
+    static class AppState
+    {
+        public static int Layout = 0; // 0 = V1 board, 1 = V2 board
+    }
+
     // ---------------- theme (matches the physical box's ordering options) ----------------
 
     static class Theme
     {
         public static int Trim = 0;   // letters & top trim: 0 green, 1 white, 2 yellow
-        public static int Btn = 0;    // buttons: 0 black, 1 white, 2 yellow
+        public static int Btn = 0;    // buttons: 0 black, 1 white, 2 yellow, 3 red
+        public static int Board = 0;  // board: 0 black, 1 green jacket, 2 red, 3 blue
         public static bool Forced;    // set by --theme (screenshot testing): skip registry load
+
+        public static Color BoardBg
+        {
+            get
+            {
+                if (Board == 1) return Color.FromArgb(32, 64, 46);
+                if (Board == 2) return Color.FromArgb(158, 34, 38);
+                if (Board == 3) return Color.FromArgb(40, 78, 160);
+                return Color.FromArgb(26, 27, 29);
+            }
+        }
 
         public static Color Accent
         {
@@ -561,6 +617,7 @@ LS_Right = Right | | hold
             {
                 if (Btn == 1) return Color.FromArgb(246, 246, 248);
                 if (Btn == 2) return Color.FromArgb(252, 216, 84);
+                if (Btn == 3) return Color.FromArgb(216, 62, 66);
                 return Color.FromArgb(58, 58, 62);
             }
         }
@@ -571,6 +628,7 @@ LS_Right = Right | | hold
             {
                 if (Btn == 1) return Color.FromArgb(178, 178, 184);
                 if (Btn == 2) return Color.FromArgb(186, 146, 30);
+                if (Btn == 3) return Color.FromArgb(142, 22, 26);
                 return Color.FromArgb(20, 20, 22);
             }
         }
@@ -581,6 +639,7 @@ LS_Right = Right | | hold
             {
                 if (Btn == 1) return Color.FromArgb(148, 148, 154);
                 if (Btn == 2) return Color.FromArgb(158, 124, 38);
+                if (Btn == 3) return Color.FromArgb(114, 26, 30);
                 return Color.FromArgb(74, 74, 80);
             }
         }
@@ -591,15 +650,21 @@ LS_Right = Right | | hold
             {
                 if (Btn == 1) return Color.FromArgb(96, 96, 102);
                 if (Btn == 2) return Color.FromArgb(104, 80, 22);
+                if (Btn == 3) return Color.FromArgb(248, 218, 218);
                 return AccentDim;
             }
         }
 
+        // pressed face follows the button colour (brighter = lit); black buttons
+        // light up in the trim accent like the original edition
         public static Color PressTop
         {
             get
             {
-                if (Trim == 1) return Color.FromArgb(240, 240, 240);
+                if (Btn == 1) return Color.FromArgb(214, 214, 218);
+                if (Btn == 2) return Color.FromArgb(255, 234, 130);
+                if (Btn == 3) return Color.FromArgb(244, 104, 108);
+                if (Trim == 1) return Color.FromArgb(214, 214, 218);
                 if (Trim == 2) return Color.FromArgb(252, 214, 64);
                 return Color.FromArgb(112, 205, 72);
             }
@@ -609,7 +674,10 @@ LS_Right = Right | | hold
         {
             get
             {
-                if (Trim == 1) return Color.FromArgb(128, 128, 132);
+                if (Btn == 1) return Color.FromArgb(96, 96, 102);
+                if (Btn == 2) return Color.FromArgb(202, 158, 34);
+                if (Btn == 3) return Color.FromArgb(164, 34, 38);
+                if (Trim == 1) return Color.FromArgb(96, 96, 102);
                 if (Trim == 2) return Color.FromArgb(170, 128, 18);
                 return Color.FromArgb(38, 100, 22);
             }
@@ -627,6 +695,7 @@ LS_Right = Right | | hold
         class Slot
         {
             public string Label;      // labeled buttons: matched to mapping entries by label
+            public string Sub = "";   // green secondary print on the physical box (cosmetic)
             public string[] Inputs;   // arrow buttons: matched by input
             public float X, Y;
             public bool Arrow;
@@ -635,14 +704,31 @@ LS_Right = Right | | hold
 
         static Color Green { get { return Theme.Accent; } }
         static Color GreenDim { get { return Theme.AccentDim; } }
-        static readonly Color BoardBg = Color.FromArgb(26, 27, 29);
+        static Color BoardBg { get { return Theme.BoardBg; } }
         static readonly Color BtnRing = Color.FromArgb(10, 10, 11);
 
         List<Slot> slots = new List<Slot>();
-        Font labelFont = new Font("Segoe UI", 11f, FontStyle.Bold | FontStyle.Italic);
+        Font labelFont = MakeBoardFont(15f);
         Font keyFont = new Font("Consolas", 9f, FontStyle.Bold);
         Font smallFont = new Font("Segoe UI", 8.5f);
-        Font markFont = new Font("Segoe UI", 9f, FontStyle.Bold | FontStyle.Italic);
+        Font markFont = MakeBoardFont(9.5f);
+
+        // the physical box is printed in a DIN-style condensed industrial face;
+        // Bahnschrift (ships with Win10+) is the closest stock match, obliqued
+        static Font MakeBoardFont(float size)
+        {
+            string[] candidates = { "Bahnschrift SemiBold Condensed", "Bahnschrift Condensed", "Bahnschrift" };
+            foreach (var name in candidates)
+            {
+                try
+                {
+                    using (var fam = new FontFamily(name))
+                        return new Font(name, size, FontStyle.Bold | FontStyle.Italic);
+                }
+                catch (ArgumentException) { }
+            }
+            return new Font("Segoe UI", size - 1.5f, FontStyle.Bold | FontStyle.Italic);
+        }
 
         public BoardPanel()
         {
@@ -650,22 +736,57 @@ LS_Right = Right | | hold
             ResizeRedraw = true;
             BackColor = Color.FromArgb(13, 13, 14);
 
-            // straight-on grid mirroring the printed board: labels fixed to
-            // physical positions, mapping entries attach by label
-            AddBtn(0.150f, 0.235f, "PUTT");
-            AddBtn(0.383f, 0.235f, "HEATMAP");
-            AddBtn(0.617f, 0.235f, "FLYOVER");
-            AddBtn(0.850f, 0.235f, "SHOTCAM");
-            AddBtn(0.150f, 0.560f, "CLUB UP");
-            AddBtn(0.150f, 0.850f, "CLUB DOWN");
-            AddBtn(0.850f, 0.560f, "AIM POINT");
-            AddBtn(0.850f, 0.850f, "MULLIGAN");
+            SetLayout(AppState.Layout);
+        }
 
-            // equal-arm plus: every arrow 66px from the cluster center (700x478 window)
-            AddArrow(0.500f, 0.518f, "▲", "LS_UP", "DPAD_UP");
-            AddArrow(0.402f, 0.665f, "◀", "LS_LEFT", "DPAD_LEFT");
-            AddArrow(0.598f, 0.665f, "▶", "LS_RIGHT", "DPAD_RIGHT");
-            AddArrow(0.500f, 0.812f, "▼", "LS_DOWN", "DPAD_DOWN");
+        float glyphX = 0.500f, glyphY = 0.665f;
+
+        // straight-on grids mirroring the printed boards: labels fixed to
+        // physical positions, mapping entries attach by label
+        public void SetLayout(int layout)
+        {
+            slots.Clear();
+            if (layout == 1)
+            {
+                // V2 board
+                AddBtn(0.150f, 0.235f, "SCORECARD", "C↑");
+                AddBtn(0.383f, 0.235f, "FAST FWD");
+                AddBtn(0.617f, 0.235f, "HEATMAP", "S1");
+                AddBtn(0.850f, 0.235f, "HIDE OBJECT", "S2");
+                AddBtn(0.150f, 0.560f, "SHOTCAM", "C↓");
+                AddBtn(0.383f, 0.560f, "MULLIGAN");
+                AddBtn(0.150f, 0.850f, "PUTT", "←T");
+                AddBtn(0.383f, 0.850f, "FLYOVER", "T→");
+
+                glyphX = 0.720f; glyphY = 0.660f;
+                AddArrow(0.720f, 0.513f, "▲", "LS_UP", "DPAD_UP");
+                AddArrow(0.622f, 0.660f, "◀", "LS_LEFT", "DPAD_LEFT");
+                var wake = new Slot(); wake.X = 0.818f; wake.Y = 0.660f; wake.Arrow = true;
+                wake.ArrowGlyph = "▶"; wake.Sub = "WAKE";
+                wake.Inputs = new string[] { "LS_RIGHT", "DPAD_RIGHT" };
+                slots.Add(wake);
+                AddArrow(0.720f, 0.807f, "▼", "LS_DOWN", "DPAD_DOWN");
+            }
+            else
+            {
+                // V1 board
+                AddBtn(0.150f, 0.235f, "PUTT");
+                AddBtn(0.383f, 0.235f, "HEATMAP");
+                AddBtn(0.617f, 0.235f, "FLYOVER");
+                AddBtn(0.850f, 0.235f, "SHOTCAM");
+                AddBtn(0.150f, 0.560f, "CLUB UP");
+                AddBtn(0.150f, 0.850f, "CLUB DOWN");
+                AddBtn(0.850f, 0.560f, "AIM POINT");
+                AddBtn(0.850f, 0.850f, "MULLIGAN");
+
+                // equal-arm plus: every arrow 66px from the cluster center (700x478 window)
+                glyphX = 0.500f; glyphY = 0.665f;
+                AddArrow(0.500f, 0.518f, "▲", "LS_UP", "DPAD_UP");
+                AddArrow(0.402f, 0.665f, "◀", "LS_LEFT", "DPAD_LEFT");
+                AddArrow(0.598f, 0.665f, "▶", "LS_RIGHT", "DPAD_RIGHT");
+                AddArrow(0.500f, 0.812f, "▼", "LS_DOWN", "DPAD_DOWN");
+            }
+            Invalidate();
         }
 
         void AddBtn(float x, float y, string label)
@@ -673,9 +794,99 @@ LS_Right = Right | | hold
             var s = new Slot(); s.X = x; s.Y = y; s.Label = label; slots.Add(s);
         }
 
+        void AddBtn(float x, float y, string label, string sub)
+        {
+            var s = new Slot(); s.X = x; s.Y = y; s.Label = label; s.Sub = sub; slots.Add(s);
+        }
+
         void AddArrow(float x, float y, string glyph, params string[] inputs)
         {
             var s = new Slot(); s.X = x; s.Y = y; s.Arrow = true; s.ArrowGlyph = glyph; s.Inputs = inputs; slots.Add(s);
+        }
+
+        // ---- click-to-test: mouse press on a drawn button sends its mapped key ----
+
+        public HashSet<string> MousePressed = new HashSet<string>();
+        Slot hoverSlot;
+        MapEntry activeEntry;
+        bool activeIsHold;
+
+        Rectangle BoardRect
+        {
+            get { int pad = 14; return new Rectangle(pad, pad, Width - pad * 2, Height - pad * 2); }
+        }
+
+        Slot HitTest(Point p)
+        {
+            var board = BoardRect;
+            float r = board.Width * 0.053f;
+            foreach (var s in slots)
+            {
+                float x = board.X + board.Width * s.X;
+                float y = board.Y + board.Height * s.Y;
+                float rr = s.Arrow ? r * 0.95f : r;
+                float dx = p.X - x, dy = p.Y - y;
+                if (dx * dx + dy * dy <= rr * rr) return s;
+            }
+            return null;
+        }
+
+        protected override void OnMouseMove(MouseEventArgs e)
+        {
+            base.OnMouseMove(e);
+            var s = HitTest(e.Location);
+            if (s != hoverSlot)
+            {
+                hoverSlot = s;
+                Cursor = s != null ? Cursors.Hand : Cursors.Default;
+                Invalidate();
+            }
+        }
+
+        protected override void OnMouseLeave(EventArgs e)
+        {
+            base.OnMouseLeave(e);
+            if (hoverSlot != null) { hoverSlot = null; Cursor = Cursors.Default; Invalidate(); }
+            EndClickPress();
+        }
+
+        protected override void OnMouseDown(MouseEventArgs e)
+        {
+            base.OnMouseDown(e);
+            if (e.Button != MouseButtons.Left) return;
+            var s = HitTest(e.Location);
+            if (s == null) return;
+            var entry = s.Arrow ? FindByInput(s.Inputs) : FindByLabel(s.Label);
+            if (entry == null || entry.KeysText.Length == 0) return;
+            activeEntry = entry;
+            MousePressed.Add(entry.Input);
+            if (entry.Mode == "hold")
+            {
+                activeIsHold = true;
+                KeySender.Press(entry.Mods, entry.Vk);
+            }
+            else
+            {
+                activeIsHold = false;
+                KeySender.Tap(entry.Mods, entry.Vk);
+            }
+            KeySender.LastSent = entry.KeysText.ToUpperInvariant();
+            Invalidate();
+        }
+
+        protected override void OnMouseUp(MouseEventArgs e)
+        {
+            base.OnMouseUp(e);
+            EndClickPress();
+        }
+
+        void EndClickPress()
+        {
+            if (activeEntry == null) return;
+            if (activeIsHold) KeySender.Release(activeEntry.Mods, activeEntry.Vk);
+            MousePressed.Remove(activeEntry.Input);
+            activeEntry = null;
+            Invalidate();
         }
 
         MapEntry FindByLabel(string label)
@@ -716,6 +927,12 @@ LS_Right = Right | | hold
             using (var path = Rounded(board, 26))
             {
                 using (var br = new SolidBrush(BoardBg)) g.FillPath(br, path);
+                using (var vign = new PathGradientBrush(path))
+                {
+                    vign.CenterColor = Color.FromArgb(0, 0, 0, 0);
+                    vign.SurroundColors = new Color[] { Color.FromArgb(80, 0, 0, 0) };
+                    g.FillPath(vign, path);
+                }
                 using (var pen = new Pen(Green, 3f)) g.DrawPath(pen, path);
             }
 
@@ -723,12 +940,12 @@ LS_Right = Right | | hold
             if (r < 16) r = 16;
 
             // center 4-way glyph between the arrow buttons
-            using (var br = new SolidBrush(Color.FromArgb(160, GreenDim)))
-            using (var f = new Font("Segoe UI Symbol", r * 0.34f, FontStyle.Bold))
+            using (var br = new SolidBrush(Color.FromArgb(210, Green)))
+            using (var f = new Font("Segoe UI Symbol", r * 0.46f, FontStyle.Bold))
             {
                 var gsz = g.MeasureString("✥", f);
-                float gx = board.X + board.Width * 0.500f;
-                float gy = board.Y + board.Height * 0.665f;
+                float gx = board.X + board.Width * glyphX;
+                float gy = board.Y + board.Height * glyphY;
                 g.DrawString("✥", f, br, gx - gsz.Width / 2f, gy - gsz.Height / 2f);
             }
 
@@ -743,6 +960,7 @@ LS_Right = Right | | hold
                 bool pressed = s.Arrow
                     ? IsPressed(s.Inputs)
                     : (entry != null && Engine != null && Engine.Pressed.Contains(entry.Input));
+                if (entry != null && MousePressed.Contains(entry.Input)) pressed = true;
                 bool mapped = entry != null && entry.KeysText.Length > 0;
 
                 float rr = s.Arrow ? r * 0.95f : r;
@@ -781,6 +999,13 @@ LS_Right = Right | | hold
                 using (var pen = new Pen(pressed ? Green : Theme.BtnBorder, 1.6f))
                     g.DrawEllipse(pen, rect);
 
+                // hover ring (click-to-test affordance)
+                if (s == hoverSlot && !pressed && mapped)
+                {
+                    using (var pen = new Pen(Color.FromArgb(150, Green), 2f))
+                        g.DrawEllipse(pen, rect.X - 4, rect.Y - 4, rect.Width + 8, rect.Height + 8);
+                }
+
                 // arrow glyph
                 if (s.Arrow)
                 {
@@ -812,23 +1037,37 @@ LS_Right = Right | | hold
                         g.DrawString(cap, keyFont, br, x - sz.Width / 2f, y + rr + 7);
                     }
                 }
+
+                // green secondary print (cosmetic, matches the physical box)
+                if (s.Sub.Length > 0)
+                {
+                    using (var br = new SolidBrush(Color.FromArgb(150, 235, 100)))
+                    {
+                        var sz = g.MeasureString(s.Sub, markFont);
+                        if (s.Arrow)
+                            g.DrawString(s.Sub, markFont, br, x - sz.Width / 2f, y + rr + 5);
+                        else
+                            g.DrawString(s.Sub, markFont, br, x + rr + 5, y - sz.Height / 2f);
+                    }
+                }
             }
 
             // wordmark top-left
             using (var br = new SolidBrush(Color.FromArgb(130, GreenDim)))
                 g.DrawString("GOLFDECK", markFont, br, board.X + 18, board.Y + 12);
 
-            // entries not attached to any board slot as chips top-right
+
+            // entries not attached to any board slot as chips along the top edge
             if (Engine != null)
             {
-                float ty = board.Y + 12;
+                float tx = board.Right - 16;
                 foreach (var e in Engine.Entries)
                 {
                     if (used.Contains(e)) continue;
                     string txt = e.Input + "  =  " + e.KeysText + (e.Mode == "repeat" ? "  (repeat)" : "");
                     bool on = Engine.Pressed.Contains(e.Input);
                     var sz = g.MeasureString(txt, smallFont);
-                    var chip = new RectangleF(board.Right - sz.Width - 18 - 16, ty, sz.Width + 18, 22);
+                    var chip = new RectangleF(tx - sz.Width - 18, board.Y + 12, sz.Width + 18, 22);
                     using (var cp = RoundedF(chip, 10))
                     {
                         using (var bg = new SolidBrush(on ? Color.FromArgb(70, 158, 232, 112) : Color.FromArgb(34, 35, 37)))
@@ -838,7 +1077,7 @@ LS_Right = Right | | hold
                     }
                     using (var br = new SolidBrush(on ? Green : GreenDim))
                         g.DrawString(txt, smallFont, br, chip.X + 9, chip.Y + 3);
-                    ty += 28;
+                    tx = chip.X - 8;
                 }
             }
         }
@@ -897,6 +1136,7 @@ LS_Right = Right | | hold
         const string RunKey = @"Software\Microsoft\Windows\CurrentVersion\Run";
         const string RunValue = "GolfDeck";
         const string AppKey = @"Software\GolfDeck";
+        public const string Version = "1.2";
 
         Engine engine = new Engine();
         BoardPanel board;
@@ -905,11 +1145,13 @@ LS_Right = Right | | hold
         CheckBox chkAutostart;
         RadioButton rbVk, rbScan;
         Label lblConn, lblInfo;
-        ToolStripMenuItem trimMenu, btnColMenu;
+        ToolStripMenuItem trimMenu, btnColMenu, boardMenu, layoutMenu;
         bool exiting;
         bool startMinimized;
         bool suppressModeEvents;
         int statusTick = 999;
+        int mapErrors;
+        bool balloonShown;
 
         public MainForm(bool minimized)
         {
@@ -920,6 +1162,18 @@ LS_Right = Right | | hold
             FormBorderStyle = FormBorderStyle.FixedSingle;
             MaximizeBox = false;
             StartPosition = FormStartPosition.CenterScreen;
+
+            // restore last window position if it is still on a screen
+            int wx = GetSetting("WinX", int.MinValue), wy = GetSetting("WinY", int.MinValue);
+            if (wx != int.MinValue && wy != int.MinValue)
+            {
+                var vs = SystemInformation.VirtualScreen;
+                if (wx > vs.Left - 100 && wx < vs.Right - 200 && wy > vs.Top - 20 && wy < vs.Bottom - 200)
+                {
+                    StartPosition = FormStartPosition.Manual;
+                    Location = new Point(wx, wy);
+                }
+            }
 
             Icon = AppIcon.Get();
 
@@ -967,30 +1221,61 @@ LS_Right = Right | | hold
             btnReload.Click += delegate { LoadMapping(true); };
             bottom.Controls.Add(btnReload);
 
-            // options: colour choices matching the physical box's order options
+            // options: layout + colour choices matching the physical box editions
             if (!Theme.Forced)
             {
                 Theme.Trim = GetSetting("TrimColor", 0);
                 Theme.Btn = GetSetting("ButtonColor", 0);
+                Theme.Board = GetSetting("BoardColor", 0);
             }
             var btnOptions = MakeButton("Options", 500, 72);
             var optMenu = new ContextMenuStrip();
+
+            layoutMenu = new ToolStripMenuItem("Board layout");
+            string[] layouts = { "V1", "V2" };
+            for (int i = 0; i < 2; i++)
+            {
+                int idx = i;
+                var li = new ToolStripMenuItem(layouts[i]);
+                li.Click += delegate { SwitchLayout(idx); };
+                layoutMenu.DropDownItems.Add(li);
+            }
+
+            var presetMenu = new ToolStripMenuItem("Edition presets");
+            AddPreset(presetMenu, "Original (black / green)", 0, 0, 0);
+            AddPreset(presetMenu, "Green Jacket", 1, 1, 2);
+            AddPreset(presetMenu, "Red && White", 2, 1, 1);
+            AddPreset(presetMenu, "Red, White && Blue", 3, 1, 3);
+
             trimMenu = new ToolStripMenuItem("Letters && top trim colour");
             btnColMenu = new ToolStripMenuItem("Button colour");
+            boardMenu = new ToolStripMenuItem("Board colour");
             string[] trims = { "Green", "White", "Yellow" };
-            string[] btncols = { "Black", "White", "Yellow" };
+            string[] btncols = { "Black", "White", "Yellow", "Red" };
+            string[] boards = { "Black", "Green Jacket", "Red", "Blue" };
             for (int i = 0; i < 3; i++)
             {
                 int idx = i;
                 var t = new ToolStripMenuItem(trims[i]);
                 t.Click += delegate { Theme.Trim = idx; SetSetting("TrimColor", idx); RefreshTheme(); };
                 trimMenu.DropDownItems.Add(t);
+            }
+            for (int i = 0; i < 4; i++)
+            {
+                int idx = i;
                 var b = new ToolStripMenuItem(btncols[i]);
                 b.Click += delegate { Theme.Btn = idx; SetSetting("ButtonColor", idx); RefreshTheme(); };
                 btnColMenu.DropDownItems.Add(b);
+                var bo = new ToolStripMenuItem(boards[i]);
+                bo.Click += delegate { Theme.Board = idx; SetSetting("BoardColor", idx); RefreshTheme(); };
+                boardMenu.DropDownItems.Add(bo);
             }
-            optMenu.Items.Add(trimMenu);
+            optMenu.Items.Add(layoutMenu);
+            optMenu.Items.Add(presetMenu);
+            optMenu.Items.Add(new ToolStripSeparator());
+            optMenu.Items.Add(boardMenu);
             optMenu.Items.Add(btnColMenu);
+            optMenu.Items.Add(trimMenu);
             btnOptions.Click += delegate { optMenu.Show(btnOptions, new Point(0, btnOptions.Height)); };
             bottom.Controls.Add(btnOptions);
             RefreshTheme();
@@ -1030,6 +1315,10 @@ LS_Right = Right | | hold
             tray.Text = "GolfDeck";
             tray.Visible = true;
             var menu = new ContextMenuStrip();
+            var verItem = new ToolStripMenuItem("GolfDeck v" + Version);
+            verItem.Enabled = false;
+            menu.Items.Add(verItem);
+            menu.Items.Add(new ToolStripSeparator());
             menu.Items.Add("Show", null, delegate { RestoreFromTray(); });
             menu.Items.Add("Restart as administrator", null, delegate { RestartAsAdmin(); });
             menu.Items.Add(new ToolStripSeparator());
@@ -1045,13 +1334,48 @@ LS_Right = Right | | hold
             timer.Start();
         }
 
+        void AddPreset(ToolStripMenuItem parent, string name, int boardCol, int trim, int btn)
+        {
+            var p = new ToolStripMenuItem(name);
+            p.Click += delegate
+            {
+                Theme.Board = boardCol; Theme.Trim = trim; Theme.Btn = btn;
+                SetSetting("BoardColor", boardCol); SetSetting("TrimColor", trim); SetSetting("ButtonColor", btn);
+                RefreshTheme();
+            };
+            parent.DropDownItems.Add(p);
+        }
+
+        void SwitchLayout(int idx)
+        {
+            if (idx != AppState.Layout)
+            {
+                AppState.Layout = idx;
+                SetSetting("Layout", idx);
+                board.SetLayout(idx);
+                if (MessageBox.Show(this,
+                    "Load the default GSPro mapping for the " + (idx == 1 ? "V2" : "V1") +
+                    " board? This overwrites mapping.txt.",
+                    "GolfDeck", MessageBoxButtons.YesNo, MessageBoxIcon.Question) == DialogResult.Yes)
+                {
+                    File.WriteAllText(Config.MappingPath, Config.DefaultFor(idx));
+                    LoadMapping(false);
+                }
+            }
+            RefreshTheme();
+        }
+
         void RefreshTheme()
         {
             for (int i = 0; i < 3; i++)
-            {
                 ((ToolStripMenuItem)trimMenu.DropDownItems[i]).Checked = Theme.Trim == i;
+            for (int i = 0; i < 4; i++)
+            {
                 ((ToolStripMenuItem)btnColMenu.DropDownItems[i]).Checked = Theme.Btn == i;
+                ((ToolStripMenuItem)boardMenu.DropDownItems[i]).Checked = Theme.Board == i;
             }
+            for (int i = 0; i < 2; i++)
+                ((ToolStripMenuItem)layoutMenu.DropDownItems[i]).Checked = AppState.Layout == i;
             board.Invalidate();
             UpdateStatus();
         }
@@ -1113,7 +1437,9 @@ LS_Right = Right | | hold
             engine.ReleaseAll();
             List<string> errors;
             engine.Entries = Config.Load(engine, out errors);
+            mapErrors = errors.Count;
             board.Invalidate();
+            UpdateStatus();
             if (errors.Count > 0 && interactive)
                 MessageBox.Show(this, string.Join("\r\n", errors.ToArray()), "mapping.txt problems",
                     MessageBoxButtons.OK, MessageBoxIcon.Warning);
@@ -1146,9 +1472,17 @@ LS_Right = Right | | hold
                 lblConn.ForeColor = Color.FromArgb(220, 95, 90);
             }
             lblInfo.Left = lblConn.Right + 16;
-            lblInfo.Text = "admin: " + (IsAdmin() ? "yes" : "no")
+            string info = "admin: " + (IsAdmin() ? "yes" : "no")
                 + "      mode: " + (KeySender.Mode == SendMode.ScanCodes ? "scancodes" : "virtual keys")
                 + "      keys sent: " + KeySender.KeysSent;
+            if (KeySender.LastSent.Length > 0) info += "      last: " + KeySender.LastSent;
+            if (mapErrors > 0) info = "mapping errors: " + mapErrors + " (Edit mapping)      " + info;
+            lblInfo.Text = info;
+            lblInfo.ForeColor = mapErrors > 0 ? Color.FromArgb(220, 95, 90) : Color.FromArgb(130, 130, 135);
+            if (tray != null)
+                tray.Text = engine.Connected
+                    ? "GolfDeck - controller connected"
+                    : "GolfDeck - no controller";
         }
 
         static bool IsAdmin()
@@ -1201,7 +1535,17 @@ LS_Right = Right | | hold
             {
                 e.Cancel = true;
                 Hide();
+                if (!balloonShown)
+                {
+                    balloonShown = true;
+                    tray.ShowBalloonTip(2000, "GolfDeck", "Still running in the tray. Right-click the icon to exit.", ToolTipIcon.Info);
+                }
                 return;
+            }
+            if (WindowState == FormWindowState.Normal && Location.X > -2000)
+            {
+                SetSetting("WinX", Location.X);
+                SetSetting("WinY", Location.Y);
             }
             engine.ReleaseAll();
             tray.Visible = false;
@@ -1225,7 +1569,7 @@ LS_Right = Right | | hold
             }
         }
 
-        static int GetSetting(string name, int def)
+        public static int GetSetting(string name, int def)
         {
             using (var k = Registry.CurrentUser.OpenSubKey(AppKey))
             {
@@ -1235,7 +1579,7 @@ LS_Right = Right | | hold
             }
         }
 
-        static void SetSetting(string name, int val)
+        public static void SetSetting(string name, int val)
         {
             using (var k = Registry.CurrentUser.CreateSubKey(AppKey))
                 k.SetValue(name, val);
@@ -1246,6 +1590,46 @@ LS_Right = Right | | hold
 
     static class Program
     {
+        static int PromptLayout()
+        {
+            using (var dlg = new Form())
+            {
+                dlg.Text = "GolfDeck";
+                dlg.FormBorderStyle = FormBorderStyle.FixedDialog;
+                dlg.MaximizeBox = false;
+                dlg.MinimizeBox = false;
+                dlg.ClientSize = new Size(430, 160);
+                dlg.StartPosition = FormStartPosition.CenterScreen;
+                dlg.BackColor = Color.FromArgb(19, 19, 21);
+                dlg.Icon = AppIcon.Get();
+
+                var lbl = new Label();
+                lbl.Text = "Which control box layout do you have?\r\n(You can change this later under Options.)";
+                lbl.ForeColor = Color.Gainsboro;
+                lbl.Bounds = new Rectangle(20, 15, 390, 40);
+                dlg.Controls.Add(lbl);
+
+                int choice = 0;
+                Button b1 = new Button(), b2 = new Button();
+                b1.Text = "V1\r\nPUTT top-left";
+                b2.Text = "V2\r\nSCORECARD top-left";
+                Button[] bs = { b1, b2 };
+                for (int i = 0; i < 2; i++)
+                {
+                    int idx = i;
+                    bs[i].Bounds = new Rectangle(20 + i * 200, 65, 190, 70);
+                    bs[i].FlatStyle = FlatStyle.Flat;
+                    bs[i].ForeColor = Color.Gainsboro;
+                    bs[i].BackColor = Color.FromArgb(36, 37, 40);
+                    bs[i].FlatAppearance.BorderColor = Color.FromArgb(100, 160, 80);
+                    bs[i].Click += delegate { choice = idx; dlg.DialogResult = DialogResult.OK; };
+                    dlg.Controls.Add(bs[i]);
+                }
+                dlg.ShowDialog();
+                return choice;
+            }
+        }
+
         [STAThread]
         static void Main(string[] args)
         {
@@ -1263,26 +1647,50 @@ LS_Right = Right | | hold
             bool minimized = false;
             string screenshot = null;
             string press = null;
+            int layoutArg = -1;
             for (int i = 0; i < args.Length; i++)
             {
                 if (args[i] == "--minimized") minimized = true;
                 else if (args[i] == "--screenshot" && i + 1 < args.Length) screenshot = args[++i];
                 else if (args[i] == "--press" && i + 1 < args.Length) press = args[++i];
+                else if (args[i] == "--layout" && i + 1 < args.Length)
+                {
+                    int lv;
+                    if (int.TryParse(args[++i], out lv)) layoutArg = lv == 2 ? 1 : 0;
+                }
                 else if (args[i] == "--theme" && i + 1 < args.Length)
                 {
                     string[] tb = args[++i].Split(',');
-                    int tv, bv;
-                    if (tb.Length == 2 && int.TryParse(tb[0], out tv) && int.TryParse(tb[1], out bv))
+                    int tv, bv, ov;
+                    if (tb.Length >= 2 && int.TryParse(tb[0], out tv) && int.TryParse(tb[1], out bv))
                     {
                         Theme.Trim = tv;
                         Theme.Btn = bv;
+                        if (tb.Length >= 3 && int.TryParse(tb[2], out ov)) Theme.Board = ov;
                         Theme.Forced = true;
                     }
                 }
             }
 
+            // resolve board layout: arg > saved > first-launch prompt
+            int layout = layoutArg;
+            if (layout < 0)
+            {
+                layout = MainForm.GetSetting("Layout", -1);
+                if (layout < 0)
+                {
+                    if (screenshot != null) layout = 0;
+                    else
+                    {
+                        layout = PromptLayout();
+                        MainForm.SetSetting("Layout", layout);
+                    }
+                }
+            }
+            AppState.Layout = layout;
+
             if (!File.Exists(Config.MappingPath))
-                File.WriteAllText(Config.MappingPath, Config.DefaultMapping);
+                File.WriteAllText(Config.MappingPath, Config.DefaultFor(layout));
 
             var form = new MainForm(minimized && screenshot == null);
 
