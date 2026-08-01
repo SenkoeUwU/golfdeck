@@ -527,6 +527,97 @@ LS_Right = Right | | hold
         }
     }
 
+    // ---------------- theme (matches the physical box's ordering options) ----------------
+
+    static class Theme
+    {
+        public static int Trim = 0;   // letters & top trim: 0 green, 1 white, 2 yellow
+        public static int Btn = 0;    // buttons: 0 black, 1 white, 2 yellow
+        public static bool Forced;    // set by --theme (screenshot testing): skip registry load
+
+        public static Color Accent
+        {
+            get
+            {
+                if (Trim == 1) return Color.FromArgb(236, 236, 236);
+                if (Trim == 2) return Color.FromArgb(250, 208, 60);
+                return Color.FromArgb(158, 232, 112);
+            }
+        }
+
+        public static Color AccentDim
+        {
+            get
+            {
+                if (Trim == 1) return Color.FromArgb(150, 150, 154);
+                if (Trim == 2) return Color.FromArgb(164, 138, 46);
+                return Color.FromArgb(96, 142, 74);
+            }
+        }
+
+        public static Color BtnTop
+        {
+            get
+            {
+                if (Btn == 1) return Color.FromArgb(246, 246, 248);
+                if (Btn == 2) return Color.FromArgb(252, 216, 84);
+                return Color.FromArgb(58, 58, 62);
+            }
+        }
+
+        public static Color BtnBottom
+        {
+            get
+            {
+                if (Btn == 1) return Color.FromArgb(178, 178, 184);
+                if (Btn == 2) return Color.FromArgb(186, 146, 30);
+                return Color.FromArgb(20, 20, 22);
+            }
+        }
+
+        public static Color BtnBorder
+        {
+            get
+            {
+                if (Btn == 1) return Color.FromArgb(148, 148, 154);
+                if (Btn == 2) return Color.FromArgb(158, 124, 38);
+                return Color.FromArgb(74, 74, 80);
+            }
+        }
+
+        public static Color Glyph
+        {
+            get
+            {
+                if (Btn == 1) return Color.FromArgb(96, 96, 102);
+                if (Btn == 2) return Color.FromArgb(104, 80, 22);
+                return AccentDim;
+            }
+        }
+
+        public static Color PressTop
+        {
+            get
+            {
+                if (Trim == 1) return Color.FromArgb(240, 240, 240);
+                if (Trim == 2) return Color.FromArgb(252, 214, 64);
+                return Color.FromArgb(112, 205, 72);
+            }
+        }
+
+        public static Color PressBottom
+        {
+            get
+            {
+                if (Trim == 1) return Color.FromArgb(128, 128, 132);
+                if (Trim == 2) return Color.FromArgb(170, 128, 18);
+                return Color.FromArgb(38, 100, 22);
+            }
+        }
+
+        public static Color PressGlyph { get { return Color.FromArgb(20, 22, 16); } }
+    }
+
     // ---------------- board GUI ----------------
 
     class BoardPanel : Panel
@@ -542,8 +633,8 @@ LS_Right = Right | | hold
             public string ArrowGlyph = "";
         }
 
-        static readonly Color Green = Color.FromArgb(158, 232, 112);
-        static readonly Color GreenDim = Color.FromArgb(96, 142, 74);
+        static Color Green { get { return Theme.Accent; } }
+        static Color GreenDim { get { return Theme.AccentDim; } }
         static readonly Color BoardBg = Color.FromArgb(26, 27, 29);
         static readonly Color BtnRing = Color.FromArgb(10, 10, 11);
 
@@ -570,10 +661,11 @@ LS_Right = Right | | hold
             AddBtn(0.850f, 0.560f, "AIM POINT");
             AddBtn(0.850f, 0.850f, "MULLIGAN");
 
-            AddArrow(0.500f, 0.475f, "▲", "LS_UP", "DPAD_UP");
-            AddArrow(0.410f, 0.665f, "◀", "LS_LEFT", "DPAD_LEFT");
-            AddArrow(0.590f, 0.665f, "▶", "LS_RIGHT", "DPAD_RIGHT");
-            AddArrow(0.500f, 0.850f, "▼", "LS_DOWN", "DPAD_DOWN");
+            // equal-arm plus: every arrow 66px from the cluster center (700x478 window)
+            AddArrow(0.500f, 0.518f, "▲", "LS_UP", "DPAD_UP");
+            AddArrow(0.402f, 0.665f, "◀", "LS_LEFT", "DPAD_LEFT");
+            AddArrow(0.598f, 0.665f, "▶", "LS_RIGHT", "DPAD_RIGHT");
+            AddArrow(0.500f, 0.812f, "▼", "LS_DOWN", "DPAD_DOWN");
         }
 
         void AddBtn(float x, float y, string label)
@@ -631,7 +723,7 @@ LS_Right = Right | | hold
             if (r < 16) r = 16;
 
             // center 4-way glyph between the arrow buttons
-            using (var br = new SolidBrush(Color.FromArgb(70, 105, 55)))
+            using (var br = new SolidBrush(Color.FromArgb(160, GreenDim)))
             using (var f = new Font("Segoe UI Symbol", r * 0.34f, FontStyle.Bold))
             {
                 var gsz = g.MeasureString("✥", f);
@@ -673,8 +765,8 @@ LS_Right = Right | | hold
                 // dome face
                 using (var face = new LinearGradientBrush(
                     new RectangleF(rect.X, rect.Y - 2, rect.Width, rect.Height + 4),
-                    pressed ? Color.FromArgb(112, 205, 72) : Color.FromArgb(58, 58, 62),
-                    pressed ? Color.FromArgb(38, 100, 22) : Color.FromArgb(20, 20, 22),
+                    pressed ? Theme.PressTop : Theme.BtnTop,
+                    pressed ? Theme.PressBottom : Theme.BtnBottom,
                     LinearGradientMode.Vertical))
                     g.FillEllipse(face, rect);
 
@@ -686,13 +778,13 @@ LS_Right = Right | | hold
                     LinearGradientMode.Vertical))
                     g.FillEllipse(hl, rect.X + rr * 0.22f, rect.Y + rr * 0.10f, rr * 1.56f, rr * 1.0f);
 
-                using (var pen = new Pen(pressed ? Green : Color.FromArgb(74, 74, 80), 1.6f))
+                using (var pen = new Pen(pressed ? Green : Theme.BtnBorder, 1.6f))
                     g.DrawEllipse(pen, rect);
 
                 // arrow glyph
                 if (s.Arrow)
                 {
-                    using (var br = new SolidBrush(pressed ? Color.FromArgb(16, 24, 10) : GreenDim))
+                    using (var br = new SolidBrush(pressed ? Theme.PressGlyph : Theme.Glyph))
                     using (var f = new Font("Segoe UI Symbol", rr * 0.52f, FontStyle.Bold))
                     {
                         var sz = g.MeasureString(s.ArrowGlyph, f);
@@ -723,7 +815,7 @@ LS_Right = Right | | hold
             }
 
             // wordmark top-left
-            using (var br = new SolidBrush(Color.FromArgb(60, 88, 48)))
+            using (var br = new SolidBrush(Color.FromArgb(130, GreenDim)))
                 g.DrawString("GOLFDECK", markFont, br, board.X + 18, board.Y + 12);
 
             // entries not attached to any board slot as chips top-right
@@ -813,6 +905,7 @@ LS_Right = Right | | hold
         CheckBox chkAutostart;
         RadioButton rbVk, rbScan;
         Label lblConn, lblInfo;
+        ToolStripMenuItem trimMenu, btnColMenu;
         bool exiting;
         bool startMinimized;
         bool suppressModeEvents;
@@ -866,13 +959,41 @@ LS_Right = Right | | hold
             bottom.Controls.Add(rbVk);
             bottom.Controls.Add(rbScan);
 
-            var btnEdit = MakeButton("Edit mapping", 500, 10);
+            var btnEdit = MakeButton("Edit mapping", 500, 8);
             btnEdit.Click += delegate { Process.Start("notepad.exe", "\"" + Config.MappingPath + "\""); };
             bottom.Controls.Add(btnEdit);
 
-            var btnReload = MakeButton("Reload mapping", 500, 44);
+            var btnReload = MakeButton("Reload mapping", 500, 40);
             btnReload.Click += delegate { LoadMapping(true); };
             bottom.Controls.Add(btnReload);
+
+            // options: colour choices matching the physical box's order options
+            if (!Theme.Forced)
+            {
+                Theme.Trim = GetSetting("TrimColor", 0);
+                Theme.Btn = GetSetting("ButtonColor", 0);
+            }
+            var btnOptions = MakeButton("Options", 500, 72);
+            var optMenu = new ContextMenuStrip();
+            trimMenu = new ToolStripMenuItem("Letters && top trim colour");
+            btnColMenu = new ToolStripMenuItem("Button colour");
+            string[] trims = { "Green", "White", "Yellow" };
+            string[] btncols = { "Black", "White", "Yellow" };
+            for (int i = 0; i < 3; i++)
+            {
+                int idx = i;
+                var t = new ToolStripMenuItem(trims[i]);
+                t.Click += delegate { Theme.Trim = idx; SetSetting("TrimColor", idx); RefreshTheme(); };
+                trimMenu.DropDownItems.Add(t);
+                var b = new ToolStripMenuItem(btncols[i]);
+                b.Click += delegate { Theme.Btn = idx; SetSetting("ButtonColor", idx); RefreshTheme(); };
+                btnColMenu.DropDownItems.Add(b);
+            }
+            optMenu.Items.Add(trimMenu);
+            optMenu.Items.Add(btnColMenu);
+            btnOptions.Click += delegate { optMenu.Show(btnOptions, new Point(0, btnOptions.Height)); };
+            bottom.Controls.Add(btnOptions);
+            RefreshTheme();
 
             lblConn = new Label();
             lblConn.Location = new Point(18, 82);
@@ -922,6 +1043,17 @@ LS_Right = Right | | hold
             timer.Interval = 10;
             timer.Tick += OnTick;
             timer.Start();
+        }
+
+        void RefreshTheme()
+        {
+            for (int i = 0; i < 3; i++)
+            {
+                ((ToolStripMenuItem)trimMenu.DropDownItems[i]).Checked = Theme.Trim == i;
+                ((ToolStripMenuItem)btnColMenu.DropDownItems[i]).Checked = Theme.Btn == i;
+            }
+            board.Invalidate();
+            UpdateStatus();
         }
 
         public void DemoPress(string csv)
@@ -1002,10 +1134,11 @@ LS_Right = Right | | hold
 
         void UpdateStatus()
         {
+            if (lblConn == null) return;
             if (engine.Connected)
             {
                 lblConn.Text = "●  Controller connected (P" + (engine.ControllerIndex + 1) + ")";
-                lblConn.ForeColor = Color.FromArgb(158, 232, 112);
+                lblConn.ForeColor = Theme.Accent;
             }
             else
             {
@@ -1135,6 +1268,17 @@ LS_Right = Right | | hold
                 if (args[i] == "--minimized") minimized = true;
                 else if (args[i] == "--screenshot" && i + 1 < args.Length) screenshot = args[++i];
                 else if (args[i] == "--press" && i + 1 < args.Length) press = args[++i];
+                else if (args[i] == "--theme" && i + 1 < args.Length)
+                {
+                    string[] tb = args[++i].Split(',');
+                    int tv, bv;
+                    if (tb.Length == 2 && int.TryParse(tb[0], out tv) && int.TryParse(tb[1], out bv))
+                    {
+                        Theme.Trim = tv;
+                        Theme.Btn = bv;
+                        Theme.Forced = true;
+                    }
+                }
             }
 
             if (!File.Exists(Config.MappingPath))
