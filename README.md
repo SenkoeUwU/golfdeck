@@ -24,7 +24,7 @@ Companion app for GSPro control boxes. Reads the box through XInput and sends th
 1. Download `GolfDeck.exe` from the link above and put it anywhere (e.g. `C:\GolfDeck`).
 2. Run it and pick your board layout (V1 = PUTT top-left, V2 = SCORECARD top-left). A `mapping.txt` with that layout's GSPro keys is created next to the exe.
 3. Plug in the box. Press buttons and watch them light up.
-4. Optional: tick "Start with Windows".
+4. Optional: turn on "Start with Windows" in the OPTIONS window (top-right of the board).
 
 Windows SmartScreen may warn about an unknown publisher the first time. The app is unsigned; click "More info", then "Run anyway". See [SETUP.txt](SETUP.txt) for the full walkthrough.
 
