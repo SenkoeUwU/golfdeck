@@ -36,6 +36,13 @@ namespace GolfDeck
         public XINPUT_GAMEPAD Gamepad;
     }
 
+    [StructLayout(LayoutKind.Sequential)]
+    public struct XINPUT_BATTERY_INFORMATION
+    {
+        public byte BatteryType;   // 0 none, 1 wired, 2 alkaline, 3 nimh, 0xFF unknown
+        public byte BatteryLevel;  // 0 empty, 1 low, 2 medium, 3 full
+    }
+
     static class XInput
     {
         [DllImport("xinput1_4.dll", EntryPoint = "XInputGetState")]
@@ -44,7 +51,11 @@ namespace GolfDeck
         [DllImport("xinput9_1_0.dll", EntryPoint = "XInputGetState")]
         static extern int GetState910(int idx, out XINPUT_STATE state);
 
+        [DllImport("xinput1_4.dll", EntryPoint = "XInputGetBatteryInformation")]
+        static extern int GetBattery14(int idx, byte devType, out XINPUT_BATTERY_INFORMATION info);
+
         static int mode = 0; // 0 = try 1_4, 2 = fall back to 9_1_0
+        static bool batteryOk = true; // xinput9_1_0 has no battery export
 
         public static int GetState(int idx, out XINPUT_STATE state)
         {
@@ -54,6 +65,16 @@ namespace GolfDeck
                 catch (DllNotFoundException) { mode = 2; }
             }
             return GetState910(idx, out state);
+        }
+
+        public static bool GetBattery(int idx, out XINPUT_BATTERY_INFORMATION info)
+        {
+            info = new XINPUT_BATTERY_INFORMATION();
+            if (!batteryOk || mode == 2) return false;
+            try { return GetBattery14(idx, 0, out info) == 0; }
+            catch (DllNotFoundException) { batteryOk = false; }
+            catch (EntryPointNotFoundException) { batteryOk = false; }
+            return false;
         }
     }
 
@@ -518,6 +539,9 @@ LS_Right = Right | | hold
         public int ControllerIndex = -1;
         public int StickThreshold = 12000;  // raw, of 32767
         public int TriggerThreshold = 64;   // raw, of 255
+        public byte BatteryType;            // 0 = none/unsupported
+        public byte BatteryLevel;
+        int lastBatteryCheck;
 
         public bool Poll()
         {
@@ -539,10 +563,25 @@ LS_Right = Right | | hold
 
             if (!got)
             {
+                BatteryType = 0;
+                lastBatteryCheck = 0;
                 ReleaseAll();
                 foreach (var e in Entries) e.WasDown = false;
                 if (Pressed.Count > 0) { Pressed.Clear(); changed = true; }
                 return changed;
+            }
+
+            // battery: coarse 4-level XInput reading, refreshed every 5s
+            if (lastBatteryCheck == 0 || Environment.TickCount - lastBatteryCheck > 5000)
+            {
+                lastBatteryCheck = Environment.TickCount;
+                XINPUT_BATTERY_INFORMATION bi;
+                if (XInput.GetBattery(ControllerIndex, out bi))
+                {
+                    BatteryType = bi.BatteryType;
+                    BatteryLevel = bi.BatteryLevel;
+                }
+                else BatteryType = 0;
             }
 
             foreach (var e in Entries)
@@ -1163,15 +1202,20 @@ LS_Right = Right | | hold
         string connText = "";
         Color connColor = Color.Gray;
         string infoText = "";
+        string battText = "";
+        Color battColor = Color.Gray;
         RectangleF optionsRect;
         bool hoverOptions;
 
-        public void SetStatus(string conn, Color col, string info)
+        public void SetStatus(string conn, Color col, string info, string batt, Color battCol)
         {
-            if (conn == connText && col == connColor && info == infoText) return;
+            if (conn == connText && col == connColor && info == infoText
+                && batt == battText && battCol == battColor) return;
             connText = conn;
             connColor = col;
             infoText = info;
+            battText = batt;
+            battColor = battCol;
             Invalidate();
         }
 
@@ -1514,6 +1558,13 @@ LS_Right = Right | | hold
                     g.DrawString(infoText, smallFont, br, sx, sy + 1 * u);
                 sx += g.MeasureString(infoText, smallFont).Width;
             }
+            if (battText.Length > 0)
+            {
+                sx += 16 * u;
+                using (var br = new SolidBrush(battColor))
+                    g.DrawString(battText, smallFont, br, sx, sy + 1 * u);
+                sx += g.MeasureString(battText, smallFont).Width;
+            }
             float statusEnd = sx;
 
             // stylized OPTIONS chip, top-right
@@ -1671,7 +1722,7 @@ LS_Right = Right | | hold
         const string RunKey = @"Software\Microsoft\Windows\CurrentVersion\Run";
         const string RunValue = "GolfDeck";
         const string AppKey = @"Software\GolfDeck";
-        public const string Version = "1.8";
+        public const string Version = "1.9";
 
         Engine engine = new Engine();
         BoardPanel board;
@@ -2049,12 +2100,42 @@ LS_Right = Right | | hold
             string info = "admin: " + (IsAdmin() ? "yes" : "no");
             if (KeySender.LastSent.Length > 0) info += "      last: " + KeySender.LastSent;
             if (mapErrors > 0) info = "mapping errors: " + mapErrors + " (fix in Options)      " + info;
-            board.SetStatus(conn, col, info);
+
+            // battery: only meaningful for wireless pads (alkaline / nimh)
+            string batt = "";
+            Color battCol = Theme.StatusDim;
+            byte bType = engine.BatteryType;
+            byte bLevel = engine.BatteryLevel;
+            if (FakeBattery >= 0) { bType = 3; bLevel = (byte)FakeBattery; } // render testing
+            if ((engine.Connected || FakeBattery >= 0) && (bType == 2 || bType == 3))
+            {
+                string[] lvls = { "empty", "LOW", "medium", "full" };
+                int lv = bLevel <= 3 ? bLevel : 3;
+                batt = "battery: " + lvls[lv];
+                if (lv == 1) battCol = Color.FromArgb(250, 200, 80);
+                else if (lv == 0) battCol = Theme.StatusBad;
+                if (lv <= 1)
+                {
+                    if (!lowBatteryWarned && tray != null)
+                    {
+                        lowBatteryWarned = true;
+                        tray.ShowBalloonTip(3000, "GolfDeck",
+                            "Controller battery is " + lvls[lv] + ".", ToolTipIcon.Warning);
+                    }
+                }
+                else lowBatteryWarned = false;
+            }
+
+            board.SetStatus(conn, col, info, batt, battCol);
             if (tray != null)
-                tray.Text = engine.Connected
+                tray.Text = (engine.Connected
                     ? "GolfDeck - controller connected"
-                    : "GolfDeck - no controller";
+                    : "GolfDeck - no controller")
+                    + (batt.Length > 0 ? " - " + batt : "");
         }
+
+        public static int FakeBattery = -1; // --battery N screenshot override
+        bool lowBatteryWarned;
 
         static bool IsAdmin()
         {
@@ -2317,6 +2398,11 @@ LS_Right = Right | | hold
                 else if (args[i] == "--scale" && i + 1 < args.Length)
                     float.TryParse(args[++i], System.Globalization.NumberStyles.Float,
                         System.Globalization.CultureInfo.InvariantCulture, out forcedScale);
+                else if (args[i] == "--battery" && i + 1 < args.Length)
+                {
+                    int bv;
+                    if (int.TryParse(args[++i], out bv) && bv >= 0 && bv <= 3) MainForm.FakeBattery = bv;
+                }
                 else if (args[i] == "--layout" && i + 1 < args.Length)
                 {
                     int lv;

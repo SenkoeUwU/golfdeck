@@ -1,5 +1,9 @@
 # Changelog
 
+## v1.9
+
+- Battery readout for wireless boxes: level (empty/low/medium/full) shown in the board status line and tray tooltip, refreshed every 5 seconds. Low battery turns the readout amber (red when empty) and pops a one-time tray warning. Wired connections show nothing (XInput reports no level for wired pads).
+
 ## v1.8
 
 - Main window is now just the board: the bottom bar is gone. Status (controller, admin, last key) sits in the board's top-left, with ink colours that stay readable on every board colour, and a stylized OPTIONS chip sits top-right.
