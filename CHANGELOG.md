@@ -3,6 +3,8 @@
 ## v1.4
 
 - Built-in update checker against GitHub releases: prompts on launch with the new version and summarized release notes, downloads and swaps the exe in place on accept. Declining snoozes the prompt for 7 days; "Check for updates" in Options checks immediately.
+- Releases now ship a bare GolfDeck.exe (no zip); the updater downloads it directly.
+- Arrow buttons and the center cross redrawn as clean vector shapes.
 
 ## v1.3
 

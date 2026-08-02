@@ -2,7 +2,7 @@
 
 Companion app for 3D-printed GSPro control boxes built from Xbox controller internals. Reads the box through XInput and sends the matching GSPro keyboard shortcuts. Single portable exe, no install, no dependencies beyond stock Windows 10/11.
 
-**[Download the latest release](https://github.com/SenkoeUwU/golfdeck/releases/latest/download/GolfDeck.zip)**
+**[Download GolfDeck.exe](https://github.com/SenkoeUwU/golfdeck/releases/latest/download/GolfDeck.exe)** - single file, no install.
 
 ![V1 board](docs/board-v1.png)
 
@@ -21,13 +21,12 @@ Companion app for 3D-printed GSPro control boxes built from Xbox controller inte
 
 ## Install
 
-1. Download `GolfDeck.zip` from the link above.
-2. Right-click the zip, Properties, check **Unblock**, OK. Then extract anywhere (e.g. `C:\GolfDeck`).
-3. Run `GolfDeck.exe` and pick your board layout (V1 = PUTT top-left, V2 = SCORECARD top-left).
-4. Plug in the box. Press buttons and watch them light up.
-5. Optional: tick "Start with Windows".
+1. Download `GolfDeck.exe` from the link above and put it anywhere (e.g. `C:\GolfDeck`).
+2. Run it and pick your board layout (V1 = PUTT top-left, V2 = SCORECARD top-left). A `mapping.txt` with that layout's GSPro keys is created next to the exe.
+3. Plug in the box. Press buttons and watch them light up.
+4. Optional: tick "Start with Windows".
 
-Windows SmartScreen may warn about an unknown publisher the first time. The app is unsigned; click "More info", then "Run anyway". See SETUP.txt inside the zip for the full walkthrough.
+Windows SmartScreen may warn about an unknown publisher the first time. The app is unsigned; click "More info", then "Run anyway". See [SETUP.txt](SETUP.txt) for the full walkthrough.
 
 If GSPro runs as administrator, use the tray menu "Restart as administrator" once so keystrokes are not blocked.
 

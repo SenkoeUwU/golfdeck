@@ -1,0 +1,43 @@
+GolfDeck setup
+==============
+
+1. Download GolfDeck.exe and put it anywhere (e.g. C:\GolfDeck).
+2. Run it. Windows SmartScreen may warn about an unknown publisher the
+   first time: click "More info", then "Run anyway". (Or right-click the
+   exe, Properties, tick Unblock, OK.)
+3. Pick your board layout:
+   - V1 : PUTT top-left (PUTT / HEATMAP / FLYOVER / SHOTCAM top row)
+   - V2 : SCORECARD top-left (SCORECARD / FAST FWD / HEATMAP / HIDE OBJECT)
+   A mapping.txt with the correct GSPro keys for that layout is created
+   automatically next to the exe.
+4. Plug in the golf controller. Buttons light up in the window when pressed.
+   You can also click the on-screen buttons with the mouse to test keys.
+5. Tick "Start with Windows" to auto-start minimized to the tray.
+6. If GSPro runs as administrator, use the tray icon menu
+   "Restart as administrator" once.
+
+Options button
+--------------
+- Board layout: V1 / V2 (offers to load that layout's default GSPro mapping)
+- Edition presets: Original, Green Jacket, Red & White, Red White & Blue
+- Board / Button / Letters colours individually
+- Check for updates
+
+Updates
+-------
+GolfDeck checks GitHub for new releases on launch and offers to update
+itself. Declining waits 7 days before asking again; check manually any time
+from Options.
+
+Key send modes
+--------------
+- Virtual keys : normal Windows key injection. Default, try first.
+- Scancodes    : alternate injection flavor. Try if GSPro ignores keys that
+                 Notepad receives.
+
+Mapping
+-------
+mapping.txt holds all bindings (button = key | label | mode). Edit with the
+"Edit mapping" button, apply with "Reload mapping". The board GUI attaches
+mappings by label, so if a physical button lights the wrong spot, swap the
+labels in mapping.txt.

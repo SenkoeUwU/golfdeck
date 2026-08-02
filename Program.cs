@@ -600,9 +600,24 @@ LS_Right = Right | | hold
             var info = new UpdateInfo();
             info.Tag = JsonString(json, "tag_name");
             info.Body = JsonString(json, "body");
-            info.ZipUrl = JsonString(json, "browser_download_url");
+            info.ZipUrl = FindAssetUrl(json, "GolfDeck.exe");
+            if (info.ZipUrl == null) info.ZipUrl = FindAssetUrl(json, ".zip");
             if (info.Tag == null || info.ZipUrl == null) return null;
             return info;
+        }
+
+        // pick the release asset whose download url ends with the given suffix
+        static string FindAssetUrl(string json, string suffix)
+        {
+            int pos = 0;
+            while (true)
+            {
+                int i = json.IndexOf("\"browser_download_url\"", pos, StringComparison.Ordinal);
+                if (i < 0) return null;
+                string v = JsonString(json.Substring(i), "browser_download_url");
+                if (v != null && v.EndsWith(suffix, StringComparison.OrdinalIgnoreCase)) return v;
+                pos = i + 22;
+            }
         }
 
         public static bool IsNewer(string tag, string current)
@@ -657,21 +672,33 @@ LS_Right = Right | | hold
         {
             string temp = Path.Combine(Path.GetTempPath(), "GolfDeckUpdate");
             Directory.CreateDirectory(temp);
-            string zip = Path.Combine(temp, "GolfDeck.zip");
-            using (var wc = new WebClient())
-            {
-                wc.Headers.Add("User-Agent", "GolfDeck-updater");
-                wc.DownloadFile(info.ZipUrl, zip);
-            }
-            string extract = Path.Combine(temp, "extracted");
-            if (Directory.Exists(extract)) Directory.Delete(extract, true);
-            ZipFile.ExtractToDirectory(zip, extract);
-            string[] found = Directory.GetFiles(extract, "GolfDeck.exe", SearchOption.AllDirectories);
-            if (found.Length == 0) throw new Exception("GolfDeck.exe not found in the update package.");
-
             string cur = Application.ExecutablePath;
             string staged = cur + ".new";
-            File.Copy(found[0], staged, true);
+
+            if (info.ZipUrl.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
+            {
+                // bare exe asset: download straight to the staging path
+                using (var wc = new WebClient())
+                {
+                    wc.Headers.Add("User-Agent", "GolfDeck-updater");
+                    wc.DownloadFile(info.ZipUrl, staged);
+                }
+            }
+            else
+            {
+                string zip = Path.Combine(temp, "GolfDeck.zip");
+                using (var wc = new WebClient())
+                {
+                    wc.Headers.Add("User-Agent", "GolfDeck-updater");
+                    wc.DownloadFile(info.ZipUrl, zip);
+                }
+                string extract = Path.Combine(temp, "extracted");
+                if (Directory.Exists(extract)) Directory.Delete(extract, true);
+                ZipFile.ExtractToDirectory(zip, extract);
+                string[] found = Directory.GetFiles(extract, "GolfDeck.exe", SearchOption.AllDirectories);
+                if (found.Length == 0) throw new Exception("GolfDeck.exe not found in the update package.");
+                File.Copy(found[0], staged, true);
+            }
 
             string script = Path.Combine(temp, "apply-update.cmd");
             File.WriteAllText(script,
@@ -1120,15 +1147,11 @@ LS_Right = Right | | hold
                         g.DrawEllipse(pen, rect.X - 4, rect.Y - 4, rect.Width + 8, rect.Height + 8);
                 }
 
-                // arrow glyph
+                // arrow glyph (vector triangle, crisp at any size)
                 if (s.Arrow)
                 {
                     using (var br = new SolidBrush(pressed ? Theme.PressGlyph : Theme.Glyph))
-                    using (var f = new Font("Segoe UI Symbol", rr * 0.52f, FontStyle.Bold))
-                    {
-                        var sz = g.MeasureString(s.ArrowGlyph, f);
-                        g.DrawString(s.ArrowGlyph, f, br, x - sz.Width / 2f, y - sz.Height / 2f + 1);
-                    }
+                        DrawTriangle(g, x, y, rr * 0.40f, s.ArrowGlyph, br);
                 }
 
                 // label above (from the slot: physical board truth)
@@ -1198,21 +1221,33 @@ LS_Right = Right | | hold
             }
         }
 
+        // slim 4-way cross: four lines out of center with proper arrowheads
         static void DrawCross(Graphics g, float cx, float cy, float ext, Color c)
         {
-            using (var br = new SolidBrush(c))
+            using (var pen = new Pen(c, ext * 0.20f))
+            using (var cap = new AdjustableArrowCap(2.4f, 2.0f, true))
             {
-                float w = ext * 0.26f;    // shaft half-width
-                float head = ext * 0.46f; // arrowhead length
-                float hw = ext * 0.52f;   // arrowhead half-width
-                float shaft = ext - head;
-                g.FillRectangle(br, cx - w, cy - shaft, w * 2, shaft * 2);
-                g.FillRectangle(br, cx - shaft, cy - w, shaft * 2, w * 2);
-                g.FillPolygon(br, new PointF[] { new PointF(cx, cy - ext), new PointF(cx - hw, cy - shaft), new PointF(cx + hw, cy - shaft) });
-                g.FillPolygon(br, new PointF[] { new PointF(cx, cy + ext), new PointF(cx - hw, cy + shaft), new PointF(cx + hw, cy + shaft) });
-                g.FillPolygon(br, new PointF[] { new PointF(cx - ext, cy), new PointF(cx - shaft, cy - hw), new PointF(cx - shaft, cy + hw) });
-                g.FillPolygon(br, new PointF[] { new PointF(cx + ext, cy), new PointF(cx + shaft, cy - hw), new PointF(cx + shaft, cy + hw) });
+                pen.CustomEndCap = cap;
+                pen.StartCap = LineCap.Round;
+                g.DrawLine(pen, cx, cy, cx, cy - ext);
+                g.DrawLine(pen, cx, cy, cx, cy + ext);
+                g.DrawLine(pen, cx, cy, cx - ext, cy);
+                g.DrawLine(pen, cx, cy, cx + ext, cy);
             }
+        }
+
+        // solid directional triangle for the arrow buttons
+        static void DrawTriangle(Graphics g, float cx, float cy, float s, string dir, Brush br)
+        {
+            PointF[] pts;
+            float b = s * 0.92f;   // half base width
+            float a = s;           // apex distance
+            float k = s * 0.62f;   // base distance
+            if (dir == "▲") pts = new PointF[] { new PointF(cx, cy - a), new PointF(cx - b, cy + k), new PointF(cx + b, cy + k) };
+            else if (dir == "▼") pts = new PointF[] { new PointF(cx, cy + a), new PointF(cx - b, cy - k), new PointF(cx + b, cy - k) };
+            else if (dir == "◀") pts = new PointF[] { new PointF(cx - a, cy), new PointF(cx + k, cy - b), new PointF(cx + k, cy + b) };
+            else pts = new PointF[] { new PointF(cx + a, cy), new PointF(cx - k, cy - b), new PointF(cx - k, cy + b) };
+            g.FillPolygon(br, pts);
         }
 
         static GraphicsPath Rounded(Rectangle r, int rad)
@@ -1934,10 +1969,15 @@ LS_Right = Right | | hold
                 form.Show();
                 if (press != null) form.DemoPress(press);
                 Application.DoEvents();
-                using (var bmp = new Bitmap(form.Width, form.Height))
+                using (var full = new Bitmap(form.Width, form.Height))
                 {
-                    form.DrawToBitmap(bmp, new Rectangle(0, 0, form.Width, form.Height));
-                    bmp.Save(screenshot, System.Drawing.Imaging.ImageFormat.Png);
+                    form.DrawToBitmap(full, new Rectangle(0, 0, form.Width, form.Height));
+                    // crop to the client area: no window chrome in the capture
+                    Point co = form.PointToScreen(Point.Empty);
+                    var client = new Rectangle(co.X - form.Location.X, co.Y - form.Location.Y,
+                        form.ClientSize.Width, form.ClientSize.Height);
+                    using (var crop = full.Clone(client, full.PixelFormat))
+                        crop.Save(screenshot, System.Drawing.Imaging.ImageFormat.Png);
                 }
                 GC.KeepAlive(mutex);
                 return;
