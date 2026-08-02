@@ -40,7 +40,9 @@ input = keys | label | mode | repeat_ms
 
 - inputs: `A B X Y LB RB LT RT Menu View LS RS`, `DPad_*`, `LS_*`, `RS_*` (stick directions)
 - keys: `K`, `Ctrl+M`, `Shift+F5`, `Space` and so on
-- modes: `hold` (held while pressed), `tap` (once per press), `repeat` (every `repeat_ms` while held)
+- modes: `hold` (held while pressed), `tap` (once per press), `repeat` (every `repeat_ms` while held), `taphold` (quick press sends the first keys, holding past the threshold sends the 5th field's keys: `Y = T | SCORECARD | taphold | 500 | I`)
+
+V2 boards use `taphold` for the dual-function buttons marked with green print: tap for the white label, hold half a second for the green one.
 
 The board GUI attaches mappings by label, so if a physical button lights the wrong spot, swap the labels in `mapping.txt`. Edit and reload from inside the app.
 
