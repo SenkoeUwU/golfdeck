@@ -715,20 +715,21 @@ LS_Right = Right | | hold
         Font markFont = MakeBoardFont(9.5f);
 
         // the physical box is printed in a DIN-style condensed industrial face;
-        // Bahnschrift (ships with Win10+) is the closest stock match, obliqued
+        // Bahnschrift (ships with Win10+) is the closest stock match. SemiCondensed
+        // first: the tighter cuts crush together at small sizes.
         static Font MakeBoardFont(float size)
         {
-            string[] candidates = { "Bahnschrift SemiBold Condensed", "Bahnschrift Condensed", "Bahnschrift" };
+            string[] candidates = { "Bahnschrift SemiBold SemiConden", "Bahnschrift SemiBold Condensed", "Bahnschrift" };
             foreach (var name in candidates)
             {
                 try
                 {
                     using (var fam = new FontFamily(name))
-                        return new Font(name, size, FontStyle.Bold | FontStyle.Italic);
+                        return new Font(name, size, FontStyle.Bold);
                 }
                 catch (ArgumentException) { }
             }
-            return new Font("Segoe UI", size - 1.5f, FontStyle.Bold | FontStyle.Italic);
+            return new Font("Segoe UI", size - 1.5f, FontStyle.Bold);
         }
 
         public BoardPanel()
@@ -938,15 +939,11 @@ LS_Right = Right | | hold
             float r = board.Width * 0.053f;
             if (r < 16) r = 16;
 
-            // center 4-way glyph between the arrow buttons
-            using (var br = new SolidBrush(Color.FromArgb(210, Green)))
-            using (var f = new Font("Segoe UI Symbol", r * 0.46f, FontStyle.Bold))
-            {
-                var gsz = g.MeasureString("✥", f);
-                float gx = board.X + board.Width * glyphX;
-                float gy = board.Y + board.Height * glyphY;
-                g.DrawString("✥", f, br, gx - gsz.Width / 2f, gy - gsz.Height / 2f);
-            }
+            // center 4-way cross between the arrow buttons (drawn, stays crisp)
+            DrawCross(g,
+                board.X + board.Width * glyphX,
+                board.Y + board.Height * glyphY,
+                r * 0.62f, Color.FromArgb(230, Green));
 
             var used = new List<MapEntry>();
 
@@ -1083,6 +1080,23 @@ LS_Right = Right | | hold
             }
         }
 
+        static void DrawCross(Graphics g, float cx, float cy, float ext, Color c)
+        {
+            using (var br = new SolidBrush(c))
+            {
+                float w = ext * 0.26f;    // shaft half-width
+                float head = ext * 0.46f; // arrowhead length
+                float hw = ext * 0.52f;   // arrowhead half-width
+                float shaft = ext - head;
+                g.FillRectangle(br, cx - w, cy - shaft, w * 2, shaft * 2);
+                g.FillRectangle(br, cx - shaft, cy - w, shaft * 2, w * 2);
+                g.FillPolygon(br, new PointF[] { new PointF(cx, cy - ext), new PointF(cx - hw, cy - shaft), new PointF(cx + hw, cy - shaft) });
+                g.FillPolygon(br, new PointF[] { new PointF(cx, cy + ext), new PointF(cx - hw, cy + shaft), new PointF(cx + hw, cy + shaft) });
+                g.FillPolygon(br, new PointF[] { new PointF(cx - ext, cy), new PointF(cx - shaft, cy - hw), new PointF(cx - shaft, cy + hw) });
+                g.FillPolygon(br, new PointF[] { new PointF(cx + ext, cy), new PointF(cx + shaft, cy - hw), new PointF(cx + shaft, cy + hw) });
+            }
+        }
+
         static GraphicsPath Rounded(Rectangle r, int rad)
         {
             var p = new GraphicsPath();
@@ -1137,7 +1151,7 @@ LS_Right = Right | | hold
         const string RunKey = @"Software\Microsoft\Windows\CurrentVersion\Run";
         const string RunValue = "GolfDeck";
         const string AppKey = @"Software\GolfDeck";
-        public const string Version = "1.2";
+        public const string Version = "1.3";
 
         Engine engine = new Engine();
         BoardPanel board;
@@ -1159,6 +1173,8 @@ LS_Right = Right | | hold
             startMinimized = minimized;
             Text = "GolfDeck";
             BackColor = Color.FromArgb(13, 13, 14);
+            AutoScaleDimensions = new SizeF(96F, 96F);
+            AutoScaleMode = AutoScaleMode.Dpi;
             ClientSize = new Size(700, 590);
             FormBorderStyle = FormBorderStyle.FixedSingle;
             MaximizeBox = false;
@@ -1599,6 +1615,8 @@ LS_Right = Right | | hold
                 dlg.FormBorderStyle = FormBorderStyle.FixedDialog;
                 dlg.MaximizeBox = false;
                 dlg.MinimizeBox = false;
+                dlg.AutoScaleDimensions = new SizeF(96F, 96F);
+                dlg.AutoScaleMode = AutoScaleMode.Dpi;
                 dlg.ClientSize = new Size(430, 160);
                 dlg.StartPosition = FormStartPosition.CenterScreen;
                 dlg.BackColor = Color.FromArgb(19, 19, 21);
