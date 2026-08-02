@@ -1,5 +1,10 @@
 # Changelog
 
+## v1.5
+
+- Full display-scaling overhaul: the app now derives one scale factor from display DPI (capped so the window always fits the screen) and drives all geometry and text through it. Fixes crushed and overlapping UI at 125/150/200% display scaling and on small screens.
+- Status bar text clips with an ellipsis instead of running under the buttons.
+
 ## v1.4
 
 - Built-in update checker against GitHub releases: prompts on launch with the new version and summarized release notes, downloads and swaps the exe in place on accept. Declining snoozes the prompt for 7 days; "Check for updates" in Options checks immediately.

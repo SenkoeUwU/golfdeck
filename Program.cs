@@ -575,6 +575,38 @@ LS_Right = Right | | hold
         public static bool NoUpdateCheck; // screenshot/test runs skip the launch check
     }
 
+    // ---------------- UI scale ----------------
+    // One factor drives all geometry and fonts (pixel units), so layout and
+    // text can never scale apart. Derived from display DPI, capped so the
+    // window always fits the working area.
+
+    static class Ui
+    {
+        public static float S = 1f;
+
+        public static int X(float v)
+        {
+            return (int)Math.Round(v * S);
+        }
+
+        public static float F(float v)
+        {
+            return v * S;
+        }
+
+        public static void Init(float forced)
+        {
+            if (forced > 0.4f && forced < 4f) { S = forced; return; }
+            float dpi;
+            using (var g = Graphics.FromHwnd(IntPtr.Zero)) dpi = g.DpiX;
+            float s = dpi / 96f;
+            var wa = Screen.PrimaryScreen.WorkingArea;
+            s = Math.Min(s, Math.Min(wa.Width / 720f, wa.Height / 650f));
+            if (s < 0.8f) s = 0.8f;
+            S = s;
+        }
+    }
+
     // ---------------- update checker (GitHub releases) ----------------
 
     class UpdateInfo
@@ -854,15 +886,16 @@ LS_Right = Right | | hold
         static readonly Color BtnRing = Color.FromArgb(10, 10, 11);
 
         List<Slot> slots = new List<Slot>();
-        Font labelFont = MakeBoardFont(15f);
-        Font keyFont = new Font("Consolas", 9f, FontStyle.Bold);
-        Font smallFont = new Font("Segoe UI", 8.5f);
-        Font markFont = MakeBoardFont(9.5f);
+        Font labelFont = MakeBoardFont(20f);
+        Font keyFont = new Font("Consolas", Ui.F(12f), FontStyle.Bold, GraphicsUnit.Pixel);
+        Font smallFont = new Font("Segoe UI", Ui.F(11.3f), FontStyle.Regular, GraphicsUnit.Pixel);
+        Font markFont = MakeBoardFont(12.7f);
 
         // the physical box is printed in a DIN-style condensed industrial face;
         // Bahnschrift (ships with Win10+) is the closest stock match. SemiCondensed
-        // first: the tighter cuts crush together at small sizes.
-        static Font MakeBoardFont(float size)
+        // first: the tighter cuts crush together at small sizes. Pixel units,
+        // scaled by Ui.S, so text tracks the app's own geometry, not device DPI.
+        static Font MakeBoardFont(float sizePx)
         {
             string[] candidates = { "Bahnschrift SemiBold SemiConden", "Bahnschrift SemiBold Condensed", "Bahnschrift" };
             foreach (var name in candidates)
@@ -870,11 +903,11 @@ LS_Right = Right | | hold
                 try
                 {
                     using (var fam = new FontFamily(name))
-                        return new Font(name, size, FontStyle.Bold);
+                        return new Font(name, Ui.F(sizePx), FontStyle.Bold, GraphicsUnit.Pixel);
                 }
                 catch (ArgumentException) { }
             }
-            return new Font("Segoe UI", size - 1.5f, FontStyle.Bold);
+            return new Font("Segoe UI", Ui.F(sizePx - 2f), FontStyle.Bold, GraphicsUnit.Pixel);
         }
 
         public BoardPanel()
@@ -958,7 +991,7 @@ LS_Right = Right | | hold
 
         Rectangle BoardRect
         {
-            get { int pad = 14; return new Rectangle(pad, pad, Width - pad * 2, Height - pad * 2); }
+            get { int pad = Ui.X(14); return new Rectangle(pad, pad, Width - pad * 2, Height - pad * 2); }
         }
 
         Slot HitTest(Point p)
@@ -1067,9 +1100,9 @@ LS_Right = Right | | hold
             g.SmoothingMode = SmoothingMode.AntiAlias;
             g.TextRenderingHint = System.Drawing.Text.TextRenderingHint.ClearTypeGridFit;
 
-            int pad = 14;
-            var board = new Rectangle(pad, pad, Width - pad * 2, Height - pad * 2);
-            using (var path = Rounded(board, 26))
+            float u = Ui.S;
+            var board = BoardRect;
+            using (var path = Rounded(board, Ui.X(26)))
             {
                 using (var br = new SolidBrush(BoardBg)) g.FillPath(br, path);
                 using (var vign = new PathGradientBrush(path))
@@ -1078,7 +1111,7 @@ LS_Right = Right | | hold
                     vign.SurroundColors = new Color[] { Color.FromArgb(80, 0, 0, 0) };
                     g.FillPath(vign, path);
                 }
-                using (var pen = new Pen(Green, 3f)) g.DrawPath(pen, path);
+                using (var pen = new Pen(Green, 3f * u)) g.DrawPath(pen, path);
             }
 
             float r = board.Width * 0.053f;
@@ -1112,14 +1145,15 @@ LS_Right = Right | | hold
                 {
                     for (int i = 3; i >= 1; i--)
                     {
+                        float go = i * 5 * u;
                         using (var glow = new SolidBrush(Color.FromArgb(22, Green)))
-                            g.FillEllipse(glow, x - rr - i * 5, y - rr - i * 5, (rr + i * 5) * 2, (rr + i * 5) * 2);
+                            g.FillEllipse(glow, x - rr - go, y - rr - go, (rr + go) * 2, (rr + go) * 2);
                     }
                 }
 
                 // bezel ring + drop shadow
                 using (var ring = new SolidBrush(BtnRing))
-                    g.FillEllipse(ring, rect.X - 5, rect.Y - 3, rect.Width + 10, rect.Height + 11);
+                    g.FillEllipse(ring, rect.X - 5 * u, rect.Y - 3 * u, rect.Width + 10 * u, rect.Height + 11 * u);
 
                 // dome face
                 using (var face = new LinearGradientBrush(
@@ -1137,14 +1171,14 @@ LS_Right = Right | | hold
                     LinearGradientMode.Vertical))
                     g.FillEllipse(hl, rect.X + rr * 0.22f, rect.Y + rr * 0.10f, rr * 1.56f, rr * 1.0f);
 
-                using (var pen = new Pen(pressed ? Green : Theme.BtnBorder, 1.6f))
+                using (var pen = new Pen(pressed ? Green : Theme.BtnBorder, 1.6f * u))
                     g.DrawEllipse(pen, rect);
 
                 // hover ring (click-to-test affordance)
                 if (s == hoverSlot && !pressed && mapped)
                 {
-                    using (var pen = new Pen(Color.FromArgb(150, Green), 2f))
-                        g.DrawEllipse(pen, rect.X - 4, rect.Y - 4, rect.Width + 8, rect.Height + 8);
+                    using (var pen = new Pen(Color.FromArgb(150, Green), 2f * u))
+                        g.DrawEllipse(pen, rect.X - 4 * u, rect.Y - 4 * u, rect.Width + 8 * u, rect.Height + 8 * u);
                 }
 
                 // arrow glyph (vector triangle, crisp at any size)
@@ -1160,7 +1194,7 @@ LS_Right = Right | | hold
                     using (var br = new SolidBrush(mapped ? Green : GreenDim))
                     {
                         var sz = g.MeasureString(s.Label, labelFont);
-                        g.DrawString(s.Label, labelFont, br, x - sz.Width / 2f, y - rr - sz.Height - 6);
+                        g.DrawString(s.Label, labelFont, br, x - sz.Width / 2f, y - rr - sz.Height - 6 * u);
                     }
                 }
 
@@ -1171,7 +1205,7 @@ LS_Right = Right | | hold
                     using (var br = new SolidBrush(pressed ? Green : GreenDim))
                     {
                         var sz = g.MeasureString(cap, keyFont);
-                        g.DrawString(cap, keyFont, br, x - sz.Width / 2f, y + rr + 7);
+                        g.DrawString(cap, keyFont, br, x - sz.Width / 2f, y + rr + 7 * u);
                     }
                 }
 
@@ -1182,41 +1216,41 @@ LS_Right = Right | | hold
                     {
                         var sz = g.MeasureString(s.Sub, markFont);
                         if (s.Arrow)
-                            g.DrawString(s.Sub, markFont, br, x - sz.Width / 2f, y + rr + 5);
+                            g.DrawString(s.Sub, markFont, br, x - sz.Width / 2f, y + rr + 5 * u);
                         else if (s.SubLeft)
-                            g.DrawString(s.Sub, markFont, br, x - rr - sz.Width - 6, y - sz.Height / 2f);
+                            g.DrawString(s.Sub, markFont, br, x - rr - sz.Width - 6 * u, y - sz.Height / 2f);
                         else
-                            g.DrawString(s.Sub, markFont, br, x - sz.Width / 2f, y + rr + 23);
+                            g.DrawString(s.Sub, markFont, br, x - sz.Width / 2f, y + rr + 23 * u);
                     }
                 }
             }
 
             // wordmark top-left
             using (var br = new SolidBrush(Color.FromArgb(130, GreenDim)))
-                g.DrawString("GOLFDECK", markFont, br, board.X + 18, board.Y + 12);
+                g.DrawString("GOLFDECK", markFont, br, board.X + 18 * u, board.Y + 12 * u);
 
 
             // entries not attached to any board slot as chips along the top edge
             if (Engine != null)
             {
-                float tx = board.Right - 16;
+                float tx = board.Right - 16 * u;
                 foreach (var e in Engine.Entries)
                 {
                     if (used.Contains(e)) continue;
                     string txt = e.Input + "  =  " + e.KeysText + (e.Mode == "repeat" ? "  (repeat)" : "");
                     bool on = Engine.Pressed.Contains(e.Input);
                     var sz = g.MeasureString(txt, smallFont);
-                    var chip = new RectangleF(tx - sz.Width - 18, board.Y + 12, sz.Width + 18, 22);
-                    using (var cp = RoundedF(chip, 10))
+                    var chip = new RectangleF(tx - sz.Width - 18 * u, board.Y + 12 * u, sz.Width + 18 * u, sz.Height + 7 * u);
+                    using (var cp = RoundedF(chip, Ui.X(10)))
                     {
                         using (var bg = new SolidBrush(on ? Color.FromArgb(70, 158, 232, 112) : Color.FromArgb(34, 35, 37)))
                             g.FillPath(bg, cp);
-                        using (var pen = new Pen(on ? Green : Color.FromArgb(58, 60, 62), 1f))
+                        using (var pen = new Pen(on ? Green : Color.FromArgb(58, 60, 62), 1f * u))
                             g.DrawPath(pen, cp);
                     }
                     using (var br = new SolidBrush(on ? Green : GreenDim))
-                        g.DrawString(txt, smallFont, br, chip.X + 9, chip.Y + 3);
-                    tx = chip.X - 8;
+                        g.DrawString(txt, smallFont, br, chip.X + 9 * u, chip.Y + 3.5f * u);
+                    tx = chip.X - 8 * u;
                 }
             }
         }
@@ -1304,7 +1338,7 @@ LS_Right = Right | | hold
         const string RunKey = @"Software\Microsoft\Windows\CurrentVersion\Run";
         const string RunValue = "GolfDeck";
         const string AppKey = @"Software\GolfDeck";
-        public const string Version = "1.4";
+        public const string Version = "1.5";
 
         Engine engine = new Engine();
         BoardPanel board;
@@ -1326,9 +1360,8 @@ LS_Right = Right | | hold
             startMinimized = minimized;
             Text = "GolfDeck";
             BackColor = Color.FromArgb(13, 13, 14);
-            AutoScaleDimensions = new SizeF(96F, 96F);
-            AutoScaleMode = AutoScaleMode.Dpi;
-            ClientSize = new Size(700, 590);
+            Font = new Font("Segoe UI", Ui.F(12f), FontStyle.Regular, GraphicsUnit.Pixel);
+            ClientSize = new Size(Ui.X(700), Ui.X(590));
             FormBorderStyle = FormBorderStyle.FixedSingle;
             MaximizeBox = false;
             StartPosition = FormStartPosition.CenterScreen;
@@ -1349,11 +1382,11 @@ LS_Right = Right | | hold
 
             board = new BoardPanel();
             board.Engine = engine;
-            board.Bounds = new Rectangle(0, 0, 700, 478);
+            board.Bounds = new Rectangle(0, 0, Ui.X(700), Ui.X(478));
             Controls.Add(board);
 
             var bottom = new Panel();
-            bottom.Bounds = new Rectangle(0, 478, 700, 112);
+            bottom.Bounds = new Rectangle(0, Ui.X(478), Ui.X(700), Ui.X(112));
             bottom.BackColor = Color.FromArgb(19, 19, 21);
             bottom.Paint += delegate(object s, PaintEventArgs e)
             {
@@ -1365,7 +1398,7 @@ LS_Right = Right | | hold
             chkAutostart = new CheckBox();
             chkAutostart.Text = "Start with Windows";
             chkAutostart.ForeColor = Color.Gainsboro;
-            chkAutostart.Location = new Point(18, 12);
+            chkAutostart.Location = new Point(Ui.X(18), Ui.X(12));
             chkAutostart.AutoSize = true;
             chkAutostart.Checked = GetAutostart();
             chkAutostart.CheckedChanged += delegate { SetAutostart(chkAutostart.Checked); };
@@ -1374,12 +1407,12 @@ LS_Right = Right | | hold
             var lblMode = new Label();
             lblMode.Text = "Key send:";
             lblMode.ForeColor = Color.FromArgb(150, 150, 155);
-            lblMode.Location = new Point(18, 45);
+            lblMode.Location = new Point(Ui.X(18), Ui.X(45));
             lblMode.AutoSize = true;
             bottom.Controls.Add(lblMode);
 
-            rbVk = MakeRadio("Virtual keys", 98, 43);
-            rbScan = MakeRadio("Scancodes", 205, 43);
+            rbVk = MakeRadio("Virtual keys", Ui.X(98), Ui.X(43));
+            rbScan = MakeRadio("Scancodes", Ui.X(212), Ui.X(43));
             bottom.Controls.Add(rbVk);
             bottom.Controls.Add(rbScan);
 
@@ -1390,6 +1423,7 @@ LS_Right = Right | | hold
             var btnReload = MakeButton("Reload mapping", 500, 40);
             btnReload.Click += delegate { LoadMapping(true); };
             bottom.Controls.Add(btnReload);
+            // (MakeButton scales x/y internally)
 
             // options: layout + colour choices matching the physical box editions
             if (!Theme.Forced)
@@ -1453,15 +1487,17 @@ LS_Right = Right | | hold
             RefreshTheme();
 
             lblConn = new Label();
-            lblConn.Location = new Point(18, 82);
+            lblConn.Location = new Point(Ui.X(18), Ui.X(82));
             lblConn.AutoSize = true;
             lblConn.Text = "● starting...";
             lblConn.ForeColor = Color.Gray;
             bottom.Controls.Add(lblConn);
 
             lblInfo = new Label();
-            lblInfo.Location = new Point(180, 82);
-            lblInfo.AutoSize = true;
+            lblInfo.AutoSize = false;
+            lblInfo.TextAlign = ContentAlignment.MiddleLeft;
+            lblInfo.AutoEllipsis = true;
+            lblInfo.Bounds = new Rectangle(Ui.X(200), Ui.X(80), Ui.X(300), Ui.X(20));
             lblInfo.Text = "";
             lblInfo.ForeColor = Color.FromArgb(130, 130, 135);
             bottom.Controls.Add(lblInfo);
@@ -1595,7 +1631,7 @@ LS_Right = Right | | hold
         {
             var b = new Button();
             b.Text = text;
-            b.Bounds = new Rectangle(x, y, 180, 28);
+            b.Bounds = new Rectangle(Ui.X(x), Ui.X(y), Ui.X(180), Ui.X(28));
             b.FlatStyle = FlatStyle.Flat;
             b.ForeColor = Color.Gainsboro;
             b.BackColor = Color.FromArgb(36, 37, 40);
@@ -1643,7 +1679,8 @@ LS_Right = Right | | hold
                 lblConn.Text = "●  Controller not found";
                 lblConn.ForeColor = Color.FromArgb(220, 95, 90);
             }
-            lblInfo.Left = lblConn.Right + 16;
+            int infoLeft = lblConn.Right + Ui.X(14);
+            lblInfo.SetBounds(infoLeft, Ui.X(80), Ui.X(500 - 12) - infoLeft, Ui.X(20));
             string info = "admin: " + (IsAdmin() ? "yes" : "no")
                 + "      mode: " + (KeySender.Mode == SendMode.ScanCodes ? "scancodes" : "virtual keys")
                 + "      keys sent: " + KeySender.KeysSent;
@@ -1863,9 +1900,8 @@ LS_Right = Right | | hold
                 dlg.FormBorderStyle = FormBorderStyle.FixedDialog;
                 dlg.MaximizeBox = false;
                 dlg.MinimizeBox = false;
-                dlg.AutoScaleDimensions = new SizeF(96F, 96F);
-                dlg.AutoScaleMode = AutoScaleMode.Dpi;
-                dlg.ClientSize = new Size(430, 160);
+                dlg.Font = new Font("Segoe UI", Ui.F(12f), FontStyle.Regular, GraphicsUnit.Pixel);
+                dlg.ClientSize = new Size(Ui.X(430), Ui.X(160));
                 dlg.StartPosition = FormStartPosition.CenterScreen;
                 dlg.BackColor = Color.FromArgb(19, 19, 21);
                 dlg.Icon = AppIcon.Get();
@@ -1873,7 +1909,7 @@ LS_Right = Right | | hold
                 var lbl = new Label();
                 lbl.Text = "Which control box layout do you have?\r\n(You can change this later under Options.)";
                 lbl.ForeColor = Color.Gainsboro;
-                lbl.Bounds = new Rectangle(20, 15, 390, 40);
+                lbl.Bounds = new Rectangle(Ui.X(20), Ui.X(15), Ui.X(390), Ui.X(40));
                 dlg.Controls.Add(lbl);
 
                 int choice = 0;
@@ -1884,7 +1920,7 @@ LS_Right = Right | | hold
                 for (int i = 0; i < 2; i++)
                 {
                     int idx = i;
-                    bs[i].Bounds = new Rectangle(20 + i * 200, 65, 190, 70);
+                    bs[i].Bounds = new Rectangle(Ui.X(20 + i * 200), Ui.X(65), Ui.X(190), Ui.X(70));
                     bs[i].FlatStyle = FlatStyle.Flat;
                     bs[i].ForeColor = Color.Gainsboro;
                     bs[i].BackColor = Color.FromArgb(36, 37, 40);
@@ -1912,14 +1948,19 @@ LS_Right = Right | | hold
             Application.SetCompatibleTextRenderingDefault(false);
 
             bool minimized = false;
+            // Ui.Init runs after arg parsing (below) so --scale can override
             string screenshot = null;
             string press = null;
             int layoutArg = -1;
+            float forcedScale = 0f;
             for (int i = 0; i < args.Length; i++)
             {
                 if (args[i] == "--minimized") minimized = true;
                 else if (args[i] == "--screenshot" && i + 1 < args.Length) screenshot = args[++i];
                 else if (args[i] == "--press" && i + 1 < args.Length) press = args[++i];
+                else if (args[i] == "--scale" && i + 1 < args.Length)
+                    float.TryParse(args[++i], System.Globalization.NumberStyles.Float,
+                        System.Globalization.CultureInfo.InvariantCulture, out forcedScale);
                 else if (args[i] == "--layout" && i + 1 < args.Length)
                 {
                     int lv;
@@ -1938,6 +1979,8 @@ LS_Right = Right | | hold
                     }
                 }
             }
+
+            Ui.Init(forcedScale);
 
             // resolve board layout: arg > saved > first-launch prompt
             int layout = layoutArg;
