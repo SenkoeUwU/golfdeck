@@ -1,5 +1,11 @@
 # Changelog
 
+## v1.8
+
+- Main window is now just the board: the bottom bar is gone. Status (controller, admin, last key) sits in the board's top-left, with ink colours that stay readable on every board colour, and a stylized OPTIONS chip sits top-right.
+- Everything else moved into the Options window: Start with Windows, key send mode, keys-sent statistic (live), Edit/Reload mapping.
+- Options controls restyled (minimal look): borderless dropdowns with accent underline opening dark menus, glyph toggles, all following the selected edition colours.
+
 ## v1.7
 
 - Options moved from a dropdown menu to a proper settings window (layout, colours, presets, updates).

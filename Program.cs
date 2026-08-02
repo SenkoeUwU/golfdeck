@@ -285,7 +285,10 @@ namespace GolfDeck
             {
                 string old = Path.Combine(Path.GetDirectoryName(Application.ExecutablePath), "mapping.txt");
                 if (File.Exists(old) && !File.Exists(MappingPath))
-                    File.Move(old, MappingPath);
+                {
+                    try { File.Move(old, MappingPath); }
+                    catch { File.Copy(old, MappingPath); } // read-only exe dir: copy, leave original
+                }
             }
             catch { /* keep the old file in place on any failure */ }
         }
@@ -694,6 +697,30 @@ LS_Right = Right | | hold
         public static bool NoUpdateCheck; // screenshot/test runs skip the launch check
     }
 
+    // ---------------- dark dropdown menu rendering ----------------
+
+    class DarkColors : ProfessionalColorTable
+    {
+        public override Color MenuItemSelected { get { return Theme.Accent; } }
+        public override Color MenuItemBorder { get { return Theme.Accent; } }
+        public override Color ToolStripDropDownBackground { get { return Color.FromArgb(26, 27, 29); } }
+        public override Color ImageMarginGradientBegin { get { return Color.FromArgb(26, 27, 29); } }
+        public override Color ImageMarginGradientMiddle { get { return Color.FromArgb(26, 27, 29); } }
+        public override Color ImageMarginGradientEnd { get { return Color.FromArgb(26, 27, 29); } }
+        public override Color MenuBorder { get { return Color.FromArgb(70, 72, 76); } }
+    }
+
+    class DarkMenuRenderer : ToolStripProfessionalRenderer
+    {
+        public DarkMenuRenderer() : base(new DarkColors()) { }
+
+        protected override void OnRenderItemText(ToolStripItemTextRenderEventArgs e)
+        {
+            e.TextColor = e.Item.Selected ? Color.FromArgb(20, 22, 16) : Color.Gainsboro;
+            base.OnRenderItemText(e);
+        }
+    }
+
     // ---------------- UI scale ----------------
     // One factor drives all geometry and fonts (pixel units), so layout and
     // text can never scale apart. Derived from display DPI, capped so the
@@ -980,6 +1007,25 @@ LS_Right = Right | | hold
         }
 
         public static Color PressGlyph { get { return Color.FromArgb(20, 22, 16); } }
+
+        // status ink, kept readable on every board colour
+        public static Color StatusBad
+        {
+            get
+            {
+                if (Board == 2) return Color.FromArgb(250, 244, 240); // red board: white
+                return Color.FromArgb(225, 96, 92);
+            }
+        }
+
+        public static Color StatusDim
+        {
+            get
+            {
+                if (Board == 0) return Color.FromArgb(140, 140, 145);
+                return Color.FromArgb(210, 214, 218); // colored boards need lighter ink
+            }
+        }
     }
 
     // ---------------- board GUI ----------------
@@ -1105,12 +1151,29 @@ LS_Right = Right | | hold
         // ---- click-to-test: mouse press on a drawn button sends its mapped key ----
 
         public HashSet<string> MousePressed = new HashSet<string>();
+        public event EventHandler OptionsClicked;
         Slot hoverSlot;
         MapEntry activeEntry;
         bool activeIsHold;
         int activeStart;
         System.Windows.Forms.Timer clickTimer;
         MapEntry pendingClick;
+
+        // status line drawn in the board's top dead space
+        string connText = "";
+        Color connColor = Color.Gray;
+        string infoText = "";
+        RectangleF optionsRect;
+        bool hoverOptions;
+
+        public void SetStatus(string conn, Color col, string info)
+        {
+            if (conn == connText && col == connColor && info == infoText) return;
+            connText = conn;
+            connColor = col;
+            infoText = info;
+            Invalidate();
+        }
 
         Rectangle BoardRect
         {
@@ -1135,11 +1198,13 @@ LS_Right = Right | | hold
         protected override void OnMouseMove(MouseEventArgs e)
         {
             base.OnMouseMove(e);
-            var s = HitTest(e.Location);
-            if (s != hoverSlot)
+            bool overOpt = optionsRect.Contains(e.Location);
+            var s = overOpt ? null : HitTest(e.Location);
+            if (s != hoverSlot || overOpt != hoverOptions)
             {
                 hoverSlot = s;
-                Cursor = s != null ? Cursors.Hand : Cursors.Default;
+                hoverOptions = overOpt;
+                Cursor = (s != null || overOpt) ? Cursors.Hand : Cursors.Default;
                 Invalidate();
             }
         }
@@ -1147,7 +1212,13 @@ LS_Right = Right | | hold
         protected override void OnMouseLeave(EventArgs e)
         {
             base.OnMouseLeave(e);
-            if (hoverSlot != null) { hoverSlot = null; Cursor = Cursors.Default; Invalidate(); }
+            if (hoverSlot != null || hoverOptions)
+            {
+                hoverSlot = null;
+                hoverOptions = false;
+                Cursor = Cursors.Default;
+                Invalidate();
+            }
             EndClickPress();
         }
 
@@ -1155,6 +1226,11 @@ LS_Right = Right | | hold
         {
             base.OnMouseDown(e);
             if (e.Button != MouseButtons.Left) return;
+            if (optionsRect.Contains(e.Location))
+            {
+                if (OptionsClicked != null) OptionsClicked(this, EventArgs.Empty);
+                return;
+            }
             var s = HitTest(e.Location);
             if (s == null) return;
             var entry = s.Arrow ? FindByInput(s.Inputs) : FindByLabel(s.Label);
@@ -1421,22 +1497,63 @@ LS_Right = Right | | hold
                 }
             }
 
-            // wordmark top-left
-            using (var br = new SolidBrush(Color.FromArgb(130, GreenDim)))
-                g.DrawString("GOLFDECK", markFont, br, board.X + 18 * u, board.Y + 12 * u);
+            // status line top-left (replaces the old wordmark)
+            float sx = board.X + 18 * u;
+            float sy = board.Y + 12 * u;
+            if (connText.Length > 0)
+            {
+                using (var br = new SolidBrush(connColor))
+                {
+                    g.DrawString(connText, markFont, br, sx, sy);
+                    sx += g.MeasureString(connText, markFont).Width + 18 * u;
+                }
+            }
+            if (infoText.Length > 0)
+            {
+                using (var br = new SolidBrush(Theme.StatusDim))
+                    g.DrawString(infoText, smallFont, br, sx, sy + 1 * u);
+                sx += g.MeasureString(infoText, smallFont).Width;
+            }
+            float statusEnd = sx;
+
+            // stylized OPTIONS chip, top-right
+            {
+                var osz = g.MeasureString("OPTIONS", markFont);
+                optionsRect = new RectangleF(board.Right - osz.Width - 34 * u, board.Y + 10 * u,
+                    osz.Width + 22 * u, osz.Height + 8 * u);
+                using (var cp = RoundedF(optionsRect, Ui.X(12)))
+                {
+                    using (var bg = new SolidBrush(hoverOptions ? Color.FromArgb(60, Green) : Color.FromArgb(60, 10, 10, 12)))
+                        g.FillPath(bg, cp);
+                    using (var pen = new Pen(hoverOptions ? Green : Color.FromArgb(190, Green), 1.4f * u))
+                        g.DrawPath(pen, cp);
+                }
+                using (var br = new SolidBrush(hoverOptions ? Green : Color.FromArgb(220, Green)))
+                    g.DrawString("OPTIONS", markFont, br, optionsRect.X + 11 * u, optionsRect.Y + 4 * u);
+            }
 
 
             // entries not attached to any board slot as chips along the top edge
             if (Engine != null)
             {
-                float tx = board.Right - 16 * u;
+                float tx = optionsRect.X - 8 * u;
+                int hidden = 0;
+                var unclaimed = new List<MapEntry>();
                 foreach (var e in Engine.Entries)
+                    if (!used.Contains(e)) unclaimed.Add(e);
+                for (int ci = 0; ci < unclaimed.Count; ci++)
                 {
-                    if (used.Contains(e)) continue;
+                    var e = unclaimed[ci];
                     string txt = e.Input + "  =  " + e.CaptionText + (e.Mode == "repeat" ? "  (repeat)" : "");
                     bool on = Engine.Pressed.Contains(e.Input);
                     var sz = g.MeasureString(txt, smallFont);
-                    var chip = new RectangleF(tx - sz.Width - 18 * u, board.Y + 12 * u, sz.Width + 18 * u, sz.Height + 7 * u);
+                    float cw = sz.Width + 18 * u;
+                    if (tx - cw < statusEnd + 14 * u)
+                    {
+                        hidden = unclaimed.Count - ci;
+                        break;
+                    }
+                    var chip = new RectangleF(tx - cw, board.Y + 12 * u, cw, sz.Height + 7 * u);
                     using (var cp = RoundedF(chip, Ui.X(10)))
                     {
                         using (var bg = new SolidBrush(on ? Color.FromArgb(70, 158, 232, 112) : Color.FromArgb(34, 35, 37)))
@@ -1447,6 +1564,20 @@ LS_Right = Right | | hold
                     using (var br = new SolidBrush(on ? Green : GreenDim))
                         g.DrawString(txt, smallFont, br, chip.X + 9 * u, chip.Y + 3.5f * u);
                     tx = chip.X - 8 * u;
+                }
+                if (hidden > 0)
+                {
+                    string txt = "+" + hidden;
+                    var sz = g.MeasureString(txt, smallFont);
+                    var chip = new RectangleF(tx - sz.Width - 14 * u, board.Y + 12 * u, sz.Width + 14 * u, sz.Height + 7 * u);
+                    if (chip.X > statusEnd)
+                    {
+                        using (var cp = RoundedF(chip, Ui.X(10)))
+                        using (var pen = new Pen(Color.FromArgb(58, 60, 62), 1f * u))
+                            g.DrawPath(pen, cp);
+                        using (var br = new SolidBrush(GreenDim))
+                            g.DrawString(txt, smallFont, br, chip.X + 7 * u, chip.Y + 3.5f * u);
+                    }
                 }
             }
         }
@@ -1540,19 +1671,17 @@ LS_Right = Right | | hold
         const string RunKey = @"Software\Microsoft\Windows\CurrentVersion\Run";
         const string RunValue = "GolfDeck";
         const string AppKey = @"Software\GolfDeck";
-        public const string Version = "1.7";
+        public const string Version = "1.8";
 
         Engine engine = new Engine();
         BoardPanel board;
         System.Windows.Forms.Timer timer;
         NotifyIcon tray;
-        CheckBox chkAutostart;
-        RadioButton rbVk, rbScan;
-        Label lblConn, lblInfo;
         bool closeToTray = true;
+        Form optionsDlg; // active options window, if open (message boxes parent here)
+        Form MsgOwner { get { return optionsDlg != null && !optionsDlg.IsDisposed ? optionsDlg : (Form)this; } }
         bool exiting;
         bool startMinimized;
-        bool suppressModeEvents;
         int statusTick = 999;
         int mapErrors;
         bool balloonShown;
@@ -1563,7 +1692,7 @@ LS_Right = Right | | hold
             Text = "GolfDeck";
             BackColor = Color.FromArgb(13, 13, 14);
             Font = new Font("Segoe UI", Ui.F(12f), FontStyle.Regular, GraphicsUnit.Pixel);
-            ClientSize = new Size(Ui.X(700), Ui.X(590));
+            ClientSize = new Size(Ui.X(700), Ui.X(478));
             FormBorderStyle = FormBorderStyle.FixedSingle;
             MaximizeBox = false;
             StartPosition = FormStartPosition.CenterScreen;
@@ -1587,47 +1716,6 @@ LS_Right = Right | | hold
             board.Bounds = new Rectangle(0, 0, Ui.X(700), Ui.X(478));
             Controls.Add(board);
 
-            var bottom = new Panel();
-            bottom.Bounds = new Rectangle(0, Ui.X(478), Ui.X(700), Ui.X(112));
-            bottom.BackColor = Color.FromArgb(19, 19, 21);
-            bottom.Paint += delegate(object s, PaintEventArgs e)
-            {
-                using (var pen = new Pen(Color.FromArgb(44, 46, 48), 1f))
-                    e.Graphics.DrawLine(pen, 0, 0, bottom.Width, 0);
-            };
-            Controls.Add(bottom);
-
-            chkAutostart = new CheckBox();
-            chkAutostart.Text = "Start with Windows";
-            chkAutostart.FlatStyle = FlatStyle.Flat;
-            chkAutostart.ForeColor = Color.Gainsboro;
-            chkAutostart.Location = new Point(Ui.X(18), Ui.X(12));
-            chkAutostart.AutoSize = true;
-            chkAutostart.Checked = GetAutostart();
-            chkAutostart.CheckedChanged += delegate { SetAutostart(chkAutostart.Checked); SyncControlAccents(); };
-            bottom.Controls.Add(chkAutostart);
-
-            var lblMode = new Label();
-            lblMode.Text = "Key send:";
-            lblMode.ForeColor = Color.FromArgb(150, 150, 155);
-            lblMode.Location = new Point(Ui.X(18), Ui.X(45));
-            lblMode.AutoSize = true;
-            bottom.Controls.Add(lblMode);
-
-            rbVk = MakeRadio("Virtual keys", Ui.X(98), Ui.X(43));
-            rbScan = MakeRadio("Scancodes", Ui.X(212), Ui.X(43));
-            bottom.Controls.Add(rbVk);
-            bottom.Controls.Add(rbScan);
-
-            var btnEdit = MakeButton("Edit mapping", 500, 8);
-            btnEdit.Click += delegate { Process.Start("notepad.exe", "\"" + Config.MappingPath + "\""); };
-            bottom.Controls.Add(btnEdit);
-
-            var btnReload = MakeButton("Reload mapping", 500, 40);
-            btnReload.Click += delegate { LoadMapping(true); };
-            bottom.Controls.Add(btnReload);
-            // (MakeButton scales x/y internally)
-
             // options: layout + colour choices, opened as a popup window
             if (!Theme.Forced)
             {
@@ -1636,41 +1724,11 @@ LS_Right = Right | | hold
                 Theme.Board = GetSetting("BoardColor", 0);
             }
             closeToTray = GetSetting("CloseToTray", 1) != 0;
-            var btnOptions = MakeButton("Options", 500, 72);
-            btnOptions.Click += delegate { ShowOptions(); };
-            bottom.Controls.Add(btnOptions);
+            board.OptionsClicked += delegate { ShowOptions(); };
             RefreshTheme();
 
-            lblConn = new Label();
-            lblConn.Location = new Point(Ui.X(18), Ui.X(82));
-            lblConn.AutoSize = true;
-            lblConn.Text = "● starting...";
-            lblConn.ForeColor = Color.Gray;
-            bottom.Controls.Add(lblConn);
-
-            lblInfo = new Label();
-            lblInfo.AutoSize = false;
-            lblInfo.TextAlign = ContentAlignment.MiddleLeft;
-            lblInfo.AutoEllipsis = true;
-            lblInfo.Bounds = new Rectangle(Ui.X(200), Ui.X(80), Ui.X(300), Ui.X(20));
-            lblInfo.Text = "";
-            lblInfo.ForeColor = Color.FromArgb(130, 130, 135);
-            bottom.Controls.Add(lblInfo);
-
             // restore saved send mode
-            int mode = GetSetting("SendMode", 0);
-            suppressModeEvents = true;
-            if (mode == 1)
-            {
-                KeySender.Mode = SendMode.ScanCodes;
-                rbScan.Checked = true;
-            }
-            else
-            {
-                KeySender.Mode = SendMode.VirtualKeys;
-                rbVk.Checked = true;
-            }
-            suppressModeEvents = false;
+            KeySender.Mode = GetSetting("SendMode", 0) == 1 ? SendMode.ScanCodes : SendMode.VirtualKeys;
 
             // tray
             tray = new NotifyIcon();
@@ -1683,6 +1741,7 @@ LS_Right = Right | | hold
             menu.Items.Add(verItem);
             menu.Items.Add(new ToolStripSeparator());
             menu.Items.Add("Show", null, delegate { RestoreFromTray(); });
+            menu.Items.Add("Options", null, delegate { RestoreFromTray(); ShowOptions(); });
             menu.Items.Add("Restart as administrator", null, delegate { RestartAsAdmin(); });
             menu.Items.Add(new ToolStripSeparator());
             menu.Items.Add("Exit", null, delegate { exiting = true; Close(); });
@@ -1704,7 +1763,7 @@ LS_Right = Right | | hold
                 AppState.Layout = idx;
                 SetSetting("Layout", idx);
                 board.SetLayout(idx);
-                if (MessageBox.Show(this,
+                if (MessageBox.Show(MsgOwner,
                     "Load the default GSPro mapping for the " + (idx == 1 ? "V2" : "V1") +
                     " board? This overwrites mapping.txt.",
                     "GolfDeck", MessageBoxButtons.YesNo, MessageBoxIcon.Question) == DialogResult.Yes)
@@ -1718,18 +1777,8 @@ LS_Right = Right | | hold
 
         void RefreshTheme()
         {
-            SyncControlAccents();
             board.Invalidate();
             UpdateStatus();
-        }
-
-        // checked controls light up in the active trim accent
-        void SyncControlAccents()
-        {
-            if (chkAutostart == null) return;
-            chkAutostart.ForeColor = chkAutostart.Checked ? Theme.Accent : Color.Gainsboro;
-            rbVk.ForeColor = rbVk.Checked ? Theme.Accent : Color.Gainsboro;
-            rbScan.ForeColor = rbScan.Checked ? Theme.Accent : Color.Gainsboro;
         }
 
         // ---- options popup ----
@@ -1745,45 +1794,78 @@ LS_Right = Right | | hold
             return l;
         }
 
-        RadioButton AddOptRadio(Form f, string text, int x, int y)
+        // dropdown replacement: themed button opening a dark menu
+        Button AddChoice(Form f, string label, string[] options, int selectedIndex, int x, int y, int w, Action<int> onPick)
         {
-            var r = new RadioButton();
-            r.Text = text;
-            r.AutoSize = true;
-            r.Location = new Point(Ui.X(x), Ui.X(y));
-            r.FlatStyle = FlatStyle.Flat;
-            r.ForeColor = Color.Gainsboro;
-            r.CheckedChanged += delegate { r.ForeColor = r.Checked ? Theme.Accent : Color.Gainsboro; };
-            f.Controls.Add(r);
-            return r;
-        }
-
-        ComboBox AddOptCombo(Form f, string[] items, int x, int y, int w)
-        {
-            var c = new ComboBox();
-            c.DropDownStyle = ComboBoxStyle.DropDownList;
-            foreach (var it in items) c.Items.Add(it);
-            c.Bounds = new Rectangle(Ui.X(x), Ui.X(y), Ui.X(w), Ui.X(24));
-            c.FlatStyle = FlatStyle.Flat;
-            c.BackColor = Color.FromArgb(36, 37, 40);
-            c.ForeColor = Color.Gainsboro;
-            c.DrawMode = DrawMode.OwnerDrawFixed;
-            c.DrawItem += OptComboDrawItem;
-            f.Controls.Add(c);
-            return c;
-        }
-
-        void OptComboDrawItem(object sender, DrawItemEventArgs e)
-        {
-            var c = (ComboBox)sender;
-            bool sel = (e.State & DrawItemState.Selected) != 0;
-            using (var bg = new SolidBrush(sel ? Theme.Accent : Color.FromArgb(36, 37, 40)))
-                e.Graphics.FillRectangle(bg, e.Bounds);
-            if (e.Index >= 0)
+            var b = new Button();
+            b.Tag = selectedIndex;
+            b.Bounds = new Rectangle(Ui.X(x), Ui.X(y), Ui.X(w), Ui.X(26));
+            b.TextAlign = ContentAlignment.MiddleLeft;
+            StyleChoice(b, label, options[selectedIndex]);
+            var menu = new ContextMenuStrip();
+            f.FormClosed += delegate { menu.Dispose(); };
+            menu.Renderer = new DarkMenuRenderer();
+            menu.ShowImageMargin = false;
+            for (int i = 0; i < options.Length; i++)
             {
-                using (var br = new SolidBrush(sel ? Color.FromArgb(20, 22, 16) : Color.Gainsboro))
-                    e.Graphics.DrawString(c.Items[e.Index].ToString(), c.Font, br, e.Bounds.X + 4, e.Bounds.Y + 2);
+                int idx = i;
+                var mi = new ToolStripMenuItem(options[i]);
+                mi.ForeColor = Color.Gainsboro;
+                mi.Click += delegate
+                {
+                    b.Tag = idx;
+                    StyleChoice(b, label, options[idx]);
+                    onPick(idx);
+                };
+                menu.Items.Add(mi);
             }
+            b.Click += delegate { menu.Show(b, new Point(0, b.Height)); };
+            b.Paint += delegate(object s, PaintEventArgs pe)
+            {
+                using (var br = new SolidBrush(Theme.Accent))
+                    pe.Graphics.FillRectangle(br, 2, b.Height - Ui.X(3), b.Width - 4, Ui.X(2));
+            };
+            f.Controls.Add(b);
+            return b;
+        }
+
+        void StyleChoice(Button b, string label, string value)
+        {
+            b.Text = value + "   ▾";
+            b.FlatStyle = FlatStyle.Flat;
+            b.ForeColor = Color.Gainsboro;
+            b.BackColor = Color.FromArgb(19, 19, 21);
+            b.FlatAppearance.BorderSize = 0;
+            b.FlatAppearance.MouseOverBackColor = Color.FromArgb(32, 33, 36);
+        }
+
+        // checkbox replacement: themed toggle
+        Button AddToggle(Form f, string text, bool state, int x, int y, int w, Action<bool> onChange)
+        {
+            var b = new Button();
+            b.Tag = state;
+            b.Bounds = new Rectangle(Ui.X(x), Ui.X(y), Ui.X(w), Ui.X(26));
+            StyleToggle(b, text);
+            b.Click += delegate
+            {
+                b.Tag = !(bool)b.Tag;
+                StyleToggle(b, text);
+                onChange((bool)b.Tag);
+            };
+            f.Controls.Add(b);
+            return b;
+        }
+
+        void StyleToggle(Button b, string text)
+        {
+            bool on = (bool)b.Tag;
+            b.FlatStyle = FlatStyle.Flat;
+            b.TextAlign = ContentAlignment.MiddleLeft;
+            b.Text = (on ? "◉  " : "○  ") + text;
+            b.BackColor = Color.FromArgb(19, 19, 21);
+            b.ForeColor = on ? Theme.Accent : Color.Gainsboro;
+            b.FlatAppearance.BorderSize = 0;
+            b.FlatAppearance.MouseOverBackColor = Color.FromArgb(32, 33, 36);
         }
 
         Button AddOptButton(Form f, string text, int x, int y, int w, int h)
@@ -1811,91 +1893,107 @@ LS_Right = Right | | hold
             dlg.BackColor = Color.FromArgb(19, 19, 21);
             dlg.Font = Font;
             dlg.Icon = AppIcon.Get();
-            dlg.ClientSize = new Size(Ui.X(420), Ui.X(300));
-
-            bool[] init = { true };
+            dlg.ClientSize = new Size(Ui.X(420), Ui.X(432));
 
             AddOptLabel(dlg, "Board layout", 16, 12, true);
-            var rbL1 = AddOptRadio(dlg, "V1  (PUTT top-left)", 16, 34);
-            var rbL2 = AddOptRadio(dlg, "V2  (SCORECARD top-left)", 180, 34);
-            if (AppState.Layout == 1) rbL2.Checked = true; else rbL1.Checked = true;
-            rbL1.CheckedChanged += delegate { if (!init[0] && rbL1.Checked) SwitchLayout(0); };
-            rbL2.CheckedChanged += delegate { if (!init[0] && rbL2.Checked) SwitchLayout(1); };
+            AddChoice(dlg, "Layout",
+                new string[] { "V1  (PUTT top-left)", "V2  (SCORECARD top-left)" },
+                AppState.Layout, 16, 34, 188,
+                delegate(int idx) { if (idx != AppState.Layout) SwitchLayout(idx); });
 
-            AddOptLabel(dlg, "Colours", 16, 68, true);
-            AddOptLabel(dlg, "Board", 16, 90, false);
-            AddOptLabel(dlg, "Buttons", 148, 90, false);
-            AddOptLabel(dlg, "Letters && trim", 280, 90, false);
-            var cbBoard = AddOptCombo(dlg, new string[] { "Black", "Green Jacket", "Red", "Blue" }, 16, 110, 120);
-            var cbBtn = AddOptCombo(dlg, new string[] { "Black", "White", "Yellow", "Red" }, 148, 110, 120);
-            var cbTrim = AddOptCombo(dlg, new string[] { "Green", "White", "Yellow" }, 280, 110, 120);
-            cbBoard.SelectedIndex = Theme.Board;
-            cbBtn.SelectedIndex = Theme.Btn;
-            cbTrim.SelectedIndex = Theme.Trim;
-            EventHandler colorChange = delegate
+            AddOptLabel(dlg, "Key send", 220, 12, true);
+            AddChoice(dlg, "Key send",
+                new string[] { "Virtual keys", "Scancodes" },
+                KeySender.Mode == SendMode.ScanCodes ? 1 : 0, 220, 34, 184,
+                delegate(int idx)
+                {
+                    KeySender.Mode = idx == 1 ? SendMode.ScanCodes : SendMode.VirtualKeys;
+                    SetSetting("SendMode", idx);
+                });
+
+            AddOptLabel(dlg, "Colours", 16, 72, true);
+            AddOptLabel(dlg, "Board", 16, 94, false);
+            AddOptLabel(dlg, "Buttons", 148, 94, false);
+            AddOptLabel(dlg, "Letters && trim", 280, 94, false);
+            Button cbBoard = null, cbBtn = null, cbTrim = null;
+            string[] boards = { "Black", "Green Jacket", "Red", "Blue" };
+            string[] btncols = { "Black", "White", "Yellow", "Red" };
+            string[] trims = { "Green", "White", "Yellow" };
+            Action applyColors = delegate
             {
-                if (init[0]) return;
-                Theme.Board = cbBoard.SelectedIndex;
-                Theme.Btn = cbBtn.SelectedIndex;
-                Theme.Trim = cbTrim.SelectedIndex;
+                Theme.Board = (int)cbBoard.Tag;
+                Theme.Btn = (int)cbBtn.Tag;
+                Theme.Trim = (int)cbTrim.Tag;
                 SetSetting("BoardColor", Theme.Board);
                 SetSetting("ButtonColor", Theme.Btn);
                 SetSetting("TrimColor", Theme.Trim);
                 RefreshTheme();
             };
-            cbBoard.SelectedIndexChanged += colorChange;
-            cbBtn.SelectedIndexChanged += colorChange;
-            cbTrim.SelectedIndexChanged += colorChange;
+            cbBoard = AddChoice(dlg, "Board", boards, Theme.Board, 16, 114, 120, delegate(int i) { applyColors(); });
+            cbBtn = AddChoice(dlg, "Buttons", btncols, Theme.Btn, 148, 114, 120, delegate(int i) { applyColors(); });
+            cbTrim = AddChoice(dlg, "Letters", trims, Theme.Trim, 280, 114, 124, delegate(int i) { applyColors(); });
 
-            AddOptLabel(dlg, "Edition presets", 16, 148, true);
+            AddOptLabel(dlg, "Edition presets", 16, 152, true);
             string[] pnames = { "Original", "Green Jacket", "Red && White", "Red, White && Blue" };
             int[][] pvals = { new int[] { 0, 0, 0 }, new int[] { 1, 1, 2 }, new int[] { 2, 1, 1 }, new int[] { 3, 1, 3 } };
             for (int i = 0; i < 4; i++)
             {
                 int idx = i;
-                var pb = AddOptButton(dlg, pnames[i], 16 + (i % 2) * 196, 170 + (i / 2) * 34, 188, 28);
+                var pb = AddOptButton(dlg, pnames[i], 16 + (i % 2) * 196, 174 + (i / 2) * 34, 188, 28);
                 pb.Click += delegate
                 {
-                    init[0] = true;
-                    cbBoard.SelectedIndex = pvals[idx][0];
-                    cbTrim.SelectedIndex = pvals[idx][1];
-                    cbBtn.SelectedIndex = pvals[idx][2];
-                    init[0] = false;
-                    colorChange(null, null);
+                    cbBoard.Tag = pvals[idx][0];
+                    cbTrim.Tag = pvals[idx][1];
+                    cbBtn.Tag = pvals[idx][2];
+                    StyleChoice(cbBoard, "Board", boards[pvals[idx][0]]);
+                    StyleChoice(cbTrim, "Letters", trims[pvals[idx][1]]);
+                    StyleChoice(cbBtn, "Buttons", btncols[pvals[idx][2]]);
+                    applyColors();
                 };
             }
 
-            var chkTray = new CheckBox();
-            chkTray.Text = "Close button hides to the tray instead of exiting";
-            chkTray.AutoSize = true;
-            chkTray.Location = new Point(Ui.X(16), Ui.X(242));
-            chkTray.FlatStyle = FlatStyle.Flat;
-            chkTray.ForeColor = Color.Gainsboro;
-            chkTray.Checked = closeToTray;
-            chkTray.ForeColor = chkTray.Checked ? Theme.Accent : Color.Gainsboro;
-            chkTray.CheckedChanged += delegate
+            AddOptLabel(dlg, "Behaviour", 16, 250, true);
+            AddToggle(dlg, "Start with Windows", GetAutostart(), 16, 272, 388,
+                delegate(bool v) { SetAutostart(v); });
+            AddToggle(dlg, "Close button hides to the tray instead of exiting", closeToTray, 16, 304, 388,
+                delegate(bool v) { closeToTray = v; SetSetting("CloseToTray", v ? 1 : 0); });
+
+            var lblStats = AddOptLabel(dlg, "Keys sent: " + KeySender.KeysSent, 16, 340, false);
+            var statTimer = new System.Windows.Forms.Timer();
+            statTimer.Interval = 500;
+            statTimer.Tick += delegate
             {
-                closeToTray = chkTray.Checked;
-                SetSetting("CloseToTray", closeToTray ? 1 : 0);
-                chkTray.ForeColor = chkTray.Checked ? Theme.Accent : Color.Gainsboro;
+                lblStats.Text = "Keys sent: " + KeySender.KeysSent
+                    + (KeySender.LastSent.Length > 0 ? "      last: " + KeySender.LastSent : "");
             };
-            dlg.Controls.Add(chkTray);
+            statTimer.Start();
+            dlg.FormClosed += delegate { statTimer.Stop(); statTimer.Dispose(); };
 
-            var bUpd = AddOptButton(dlg, "Check for updates", 16, 268, 150, 26);
-            bUpd.Click += delegate { StartUpdateCheck(true); };
-            var bFolder = AddOptButton(dlg, "Open mapping folder", 174, 268, 164, 26);
+            var bEdit = AddOptButton(dlg, "Edit mapping", 16, 364, 120, 26);
+            bEdit.Click += delegate { Process.Start("notepad.exe", "\"" + Config.MappingPath + "\""); };
+            var bReload = AddOptButton(dlg, "Reload mapping", 144, 364, 126, 26);
+            bReload.Click += delegate { LoadMapping(true); };
+            var bFolder = AddOptButton(dlg, "Open folder", 278, 364, 126, 26);
             bFolder.Click += delegate { Process.Start("explorer.exe", "\"" + Config.Dir + "\""); };
-            var bClose = AddOptButton(dlg, "Close", 346, 268, 58, 26);
-            bClose.Click += delegate { dlg.Close(); };
 
-            init[0] = false;
+            var bUpd = AddOptButton(dlg, "Check for updates", 16, 396, 150, 26);
+            bUpd.Click += delegate { StartUpdateCheck(true); };
+            var bClose = AddOptButton(dlg, "Close", 346, 396, 58, 26);
+            bClose.Click += delegate { dlg.Close(); };
+            bClose.DialogResult = DialogResult.Cancel;
+            dlg.CancelButton = bClose; // Esc closes
+
             return dlg;
         }
 
         void ShowOptions()
         {
             using (var dlg = BuildOptionsDialog())
-                dlg.ShowDialog(this);
+            {
+                optionsDlg = dlg;
+                try { dlg.ShowDialog(this); }
+                finally { optionsDlg = null; }
+            }
         }
 
         public void DemoPress(string csv)
@@ -1907,51 +2005,6 @@ LS_Right = Right | | hold
             board.Invalidate();
         }
 
-        RadioButton MakeRadio(string text, int x, int y)
-        {
-            var r = new RadioButton();
-            r.Text = text;
-            r.FlatStyle = FlatStyle.Flat;
-            r.ForeColor = Color.Gainsboro;
-            r.Location = new Point(x, y);
-            r.AutoSize = true;
-            r.CheckedChanged += OnModeChanged;
-            r.CheckedChanged += delegate { SyncControlAccents(); };
-            return r;
-        }
-
-        void OnModeChanged(object sender, EventArgs e)
-        {
-            if (suppressModeEvents) return;
-            var rb = (RadioButton)sender;
-            if (!rb.Checked) return;
-
-            if (rb == rbScan)
-            {
-                KeySender.Mode = SendMode.ScanCodes;
-                SetSetting("SendMode", 1);
-            }
-            else
-            {
-                KeySender.Mode = SendMode.VirtualKeys;
-                SetSetting("SendMode", 0);
-            }
-            statusTick = 999;
-        }
-
-        Button MakeButton(string text, int x, int y)
-        {
-            var b = new Button();
-            b.Text = text;
-            b.Bounds = new Rectangle(Ui.X(x), Ui.X(y), Ui.X(180), Ui.X(28));
-            b.FlatStyle = FlatStyle.Flat;
-            b.ForeColor = Color.Gainsboro;
-            b.BackColor = Color.FromArgb(36, 37, 40);
-            b.FlatAppearance.BorderColor = Color.FromArgb(64, 66, 70);
-            b.FlatAppearance.MouseOverBackColor = Color.FromArgb(48, 50, 54);
-            return b;
-        }
-
         void LoadMapping(bool interactive)
         {
             engine.ReleaseAll();
@@ -1961,7 +2014,7 @@ LS_Right = Right | | hold
             board.Invalidate();
             UpdateStatus();
             if (errors.Count > 0 && interactive)
-                MessageBox.Show(this, string.Join("\r\n", errors.ToArray()), "mapping.txt problems",
+                MessageBox.Show(MsgOwner, string.Join("\r\n", errors.ToArray()), "mapping.txt problems",
                     MessageBoxButtons.OK, MessageBoxIcon.Warning);
         }
 
@@ -1980,26 +2033,23 @@ LS_Right = Right | | hold
 
         void UpdateStatus()
         {
-            if (lblConn == null) return;
+            if (board == null) return;
+            string conn;
+            Color col;
             if (engine.Connected)
             {
-                lblConn.Text = "●  Controller connected (P" + (engine.ControllerIndex + 1) + ")";
-                lblConn.ForeColor = Theme.Accent;
+                conn = "●  CONTROLLER CONNECTED (P" + (engine.ControllerIndex + 1) + ")";
+                col = Theme.Accent;
             }
             else
             {
-                lblConn.Text = "●  Controller not found";
-                lblConn.ForeColor = Color.FromArgb(220, 95, 90);
+                conn = "●  CONTROLLER NOT FOUND";
+                col = Theme.StatusBad;
             }
-            int infoLeft = lblConn.Right + Ui.X(14);
-            lblInfo.SetBounds(infoLeft, Ui.X(80), Ui.X(500 - 12) - infoLeft, Ui.X(20));
-            string info = "admin: " + (IsAdmin() ? "yes" : "no")
-                + "      mode: " + (KeySender.Mode == SendMode.ScanCodes ? "scancodes" : "virtual keys")
-                + "      keys sent: " + KeySender.KeysSent;
+            string info = "admin: " + (IsAdmin() ? "yes" : "no");
             if (KeySender.LastSent.Length > 0) info += "      last: " + KeySender.LastSent;
-            if (mapErrors > 0) info = "mapping errors: " + mapErrors + " (Edit mapping)      " + info;
-            lblInfo.Text = info;
-            lblInfo.ForeColor = mapErrors > 0 ? Color.FromArgb(220, 95, 90) : Color.FromArgb(130, 130, 135);
+            if (mapErrors > 0) info = "mapping errors: " + mapErrors + " (fix in Options)      " + info;
+            board.SetStatus(conn, col, info);
             if (tray != null)
                 tray.Text = engine.Connected
                     ? "GolfDeck - controller connected"
@@ -2018,7 +2068,7 @@ LS_Right = Right | | hold
 
         void RestartAsAdmin()
         {
-            if (IsAdmin()) { MessageBox.Show(this, "Already running as administrator."); return; }
+            if (IsAdmin()) { MessageBox.Show(MsgOwner, "Already running as administrator."); return; }
             try
             {
                 var psi = new ProcessStartInfo(Application.ExecutablePath);
@@ -2078,14 +2128,14 @@ LS_Right = Right | | hold
             if (failed || info == null)
             {
                 if (manual)
-                    MessageBox.Show(this, "Update check failed. No network, or the release feed is unavailable.",
+                    MessageBox.Show(MsgOwner, "Update check failed. No network, or the release feed is unavailable.",
                         "GolfDeck", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 return;
             }
             if (!Updater.IsNewer(info.Tag, Version))
             {
                 if (manual)
-                    MessageBox.Show(this, "You are on the latest version (v" + Version + ").",
+                    MessageBox.Show(MsgOwner, "You are on the latest version (v" + Version + ").",
                         "GolfDeck", MessageBoxButtons.OK, MessageBoxIcon.Information);
                 return;
             }
@@ -2095,7 +2145,7 @@ LS_Right = Right | | hold
             if (summary.Length == 0) summary = "(no release notes)";
 
             if (!Visible) RestoreFromTray();
-            var res = MessageBox.Show(this,
+            var res = MessageBox.Show(MsgOwner,
                 "Update available: " + info.Tag + " (you have v" + Version + ")\r\n\r\n" +
                 summary + "\r\n\r\nWould you like to update?",
                 "GolfDeck update", MessageBoxButtons.YesNo, MessageBoxIcon.Information);
@@ -2110,7 +2160,7 @@ LS_Right = Right | | hold
                 }
                 catch (Exception ex)
                 {
-                    MessageBox.Show(this, "Update failed: " + ex.Message +
+                    MessageBox.Show(MsgOwner, "Update failed: " + ex.Message +
                         "\r\n\r\nDownload manually from github.com/SenkoeUwU/golfdeck/releases",
                         "GolfDeck", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 }
