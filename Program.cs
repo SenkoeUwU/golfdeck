@@ -280,23 +280,24 @@ namespace GolfDeck
         public const string DefaultMappingV2 = @"# GolfDeck mapping - V2 board
 # Wiring and dual functions taken from the maker's JoyToKey profile.
 #
-# taphold buttons: quick press sends the first key, holding past the
-# threshold (ms, 4th field) sends the second (the green print on the box).
+# doubletap buttons: single press sends the first key, pressing twice
+# quickly (within the window, ms, 4th field) sends the second key
+# (the green print on the box).
 #
-# format:   input = keys | label | mode | threshold_ms | hold keys
+# format:   input = keys | label | mode | window_ms | second keys
 #
 # settings (percent):
 stick_threshold = 37
 trigger_threshold = 25
 
-Y       = T       | SCORECARD   | taphold | 500 | I
+Y       = T       | SCORECARD   | doubletap | 500 | I
 X       = Space   | FAST FWD    | tap
-B       = Y       | HEATMAP     | taphold | 500 | 1
-A       = B       | HIDE OBJECT | taphold | 500 | 2
-RB      = J       | SHOTCAM     | taphold | 500 | K
+B       = Y       | HEATMAP     | doubletap | 500 | 1
+A       = B       | HIDE OBJECT | doubletap | 500 | 2
+RB      = J       | SHOTCAM     | doubletap | 500 | K
 LB      = Ctrl+M  | MULLIGAN    | tap
-RT      = U       | PUTT        | taphold | 500 | C
-LT      = O       | FLYOVER     | taphold | 500 | V
+RT      = U       | PUTT        | doubletap | 500 | C
+LT      = O       | FLYOVER     | doubletap | 500 | V
 
 # WAKE button (Menu input) doubles as aim right
 Menu     = Right | | hold
@@ -318,8 +319,10 @@ LS_Right = Right | | hold
 #   mode:   hold    = key held down while button held (default)
 #           tap     = one keypress per button press
 #           repeat  = keypress repeats every repeat_ms while held
-#           taphold = quick press sends keys, holding past repeat_ms sends
-#                     the 5th field's keys (input = k | label | taphold | 500 | k2)
+#           taphold   = quick press sends keys, holding past repeat_ms sends
+#                       the 5th field's keys (input = k | label | taphold | 500 | k2)
+#           doubletap = single press sends keys, two presses within repeat_ms
+#                       send the 5th field's keys
 #
 # inputs:  A B X Y LB RB LT RT Menu View LS RS
 #          DPad_Up DPad_Down DPad_Left DPad_Right
@@ -412,7 +415,7 @@ LS_Right = Right | | hold
                     int ms;
                     if (int.TryParse(parts[3].Trim(), out ms) && ms >= 20) { e.RepeatMs = ms; e.HoldMs = ms; }
                 }
-                if (e.Mode != "hold" && e.Mode != "tap" && e.Mode != "repeat" && e.Mode != "taphold")
+                if (e.Mode != "hold" && e.Mode != "tap" && e.Mode != "repeat" && e.Mode != "taphold" && e.Mode != "doubletap")
                 {
                     errors.Add("line " + (ln + 1) + ": unknown mode '" + e.Mode + "'");
                     e.Mode = "hold";
@@ -443,8 +446,8 @@ LS_Right = Right | | hold
                     else e.Vk = vk;
                 }
 
-                // taphold: 5th field holds the long-press keys
-                if (ok && e.Mode == "taphold")
+                // taphold / doubletap: 5th field holds the secondary keys
+                if (ok && (e.Mode == "taphold" || e.Mode == "doubletap"))
                 {
                     if (parts.Length > 4 && parts[4].Trim().Length > 0)
                     {
@@ -474,7 +477,7 @@ LS_Right = Right | | hold
                     }
                     else
                     {
-                        errors.Add("line " + (ln + 1) + ": taphold needs hold keys in the 5th field");
+                        errors.Add("line " + (ln + 1) + ": " + e.Mode + " needs secondary keys in the 5th field");
                         e.Mode = "tap";
                     }
                 }
@@ -535,9 +538,34 @@ LS_Right = Right | | hold
 
         void Step(MapEntry e, bool down)
         {
-            if (e.Mode != "taphold" && down && !e.WasDown && e.KeysText.Length > 0)
+            if (e.Mode != "taphold" && e.Mode != "doubletap" && down && !e.WasDown && e.KeysText.Length > 0)
                 KeySender.LastSent = e.KeysText.ToUpperInvariant();
-            if (e.Mode == "taphold")
+            if (e.Mode == "doubletap")
+            {
+                // creator-confirmed V2 semantics: a second press within the
+                // window fires the secondary; otherwise the single press fires
+                // the primary once the window expires
+                if (down && !e.WasDown)
+                {
+                    if (e.PressStart != 0 && Environment.TickCount - e.PressStart <= e.HoldMs)
+                    {
+                        KeySender.Tap(e.HoldMods, e.HoldVk);
+                        KeySender.LastSent = e.HoldKeysText.ToUpperInvariant();
+                        e.PressStart = 0;
+                    }
+                    else
+                    {
+                        e.PressStart = Environment.TickCount;
+                    }
+                }
+                else if (e.PressStart != 0 && Environment.TickCount - e.PressStart > e.HoldMs)
+                {
+                    KeySender.Tap(e.Mods, e.Vk);
+                    KeySender.LastSent = e.KeysText.ToUpperInvariant();
+                    e.PressStart = 0;
+                }
+            }
+            else if (e.Mode == "taphold")
             {
                 // JoyToKey semantics: tap fires on release before the threshold,
                 // hold fires once the moment the threshold is crossed
@@ -1063,6 +1091,8 @@ LS_Right = Right | | hold
         MapEntry activeEntry;
         bool activeIsHold;
         int activeStart;
+        System.Windows.Forms.Timer clickTimer;
+        MapEntry pendingClick;
 
         Rectangle BoardRect
         {
@@ -1124,6 +1154,29 @@ LS_Right = Right | | hold
             {
                 activeIsHold = false; // decided on release by press duration
             }
+            else if (entry.Mode == "doubletap")
+            {
+                activeIsHold = false;
+                if (clickTimer == null)
+                {
+                    clickTimer = new System.Windows.Forms.Timer();
+                    clickTimer.Tick += OnClickTimer;
+                }
+                if (pendingClick == entry)
+                {
+                    clickTimer.Stop();
+                    pendingClick = null;
+                    KeySender.Tap(entry.HoldMods, entry.HoldVk);
+                    KeySender.LastSent = entry.HoldKeysText.ToUpperInvariant();
+                }
+                else
+                {
+                    OnClickTimer(null, null); // flush any other pending single click
+                    pendingClick = entry;
+                    clickTimer.Interval = Math.Max(50, entry.HoldMs);
+                    clickTimer.Start();
+                }
+            }
             else
             {
                 activeIsHold = false;
@@ -1131,6 +1184,17 @@ LS_Right = Right | | hold
                 KeySender.LastSent = entry.KeysText.ToUpperInvariant();
             }
             Invalidate();
+        }
+
+        void OnClickTimer(object sender, EventArgs e)
+        {
+            if (clickTimer != null) clickTimer.Stop();
+            if (pendingClick != null)
+            {
+                KeySender.Tap(pendingClick.Mods, pendingClick.Vk);
+                KeySender.LastSent = pendingClick.KeysText.ToUpperInvariant();
+                pendingClick = null;
+            }
         }
 
         protected override void OnMouseUp(MouseEventArgs e)
