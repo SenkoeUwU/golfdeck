@@ -1,6 +1,6 @@
 # GolfDeck
 
-Companion app for 3D-printed GSPro control boxes built from Xbox controller internals. Reads the box through XInput and sends the matching GSPro keyboard shortcuts. Single portable exe, no install, no dependencies beyond stock Windows 10/11.
+Companion app for GSPro control boxes. Reads the box through XInput and sends the matching GSPro keyboard shortcuts. Single portable exe, no install, no dependencies beyond stock Windows 10/11.
 
 **[Download GolfDeck.exe](https://github.com/SenkoeUwU/golfdeck/releases/latest/download/GolfDeck.exe)** - single file, no install.
 
