@@ -14,6 +14,7 @@ Companion app for 3D-printed GSPro control boxes built from Xbox controller inte
 - All bindings in a plain-text `mapping.txt` (per-button key, label, hold/tap/repeat mode). Defaults are the standard GSPro shortcuts.
 - Start with Windows (minimized to tray), tray status, restart-as-administrator for elevated GSPro.
 - Two key injection modes (virtual keys and scancodes) for games that filter one or the other.
+- Built-in update checker: prompts on launch when a new GitHub release exists (with release notes), updates in place. Declining snoozes the prompt for 7 days; check manually any time from Options.
 
 ![V2 board, Green Jacket](docs/board-v2.png)
 ![V2 board, Red White & Blue](docs/edition-rwb.png)

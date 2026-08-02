@@ -1,5 +1,9 @@
 # Changelog
 
+## v1.4
+
+- Built-in update checker against GitHub releases: prompts on launch with the new version and summarized release notes, downloads and swaps the exe in place on accept. Declining snoozes the prompt for 7 days; "Check for updates" in Options checks immediately.
+
 ## v1.3
 
 - Board lettering switched to upright Bahnschrift SemiCondensed (was italic condensed), fixing crushed text at small sizes.
