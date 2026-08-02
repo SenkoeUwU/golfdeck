@@ -264,12 +264,30 @@ namespace GolfDeck
     {
         public static string Dir
         {
-            get { return Path.GetDirectoryName(Application.ExecutablePath); }
+            get
+            {
+                string d = Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "GolfDeck");
+                Directory.CreateDirectory(d);
+                return d;
+            }
         }
 
         public static string MappingPath
         {
             get { return Path.Combine(Dir, "mapping.txt"); }
+        }
+
+        // pre-1.7 installs kept mapping.txt next to the exe; move it over once
+        public static void MigrateOldMapping()
+        {
+            try
+            {
+                string old = Path.Combine(Path.GetDirectoryName(Application.ExecutablePath), "mapping.txt");
+                if (File.Exists(old) && !File.Exists(MappingPath))
+                    File.Move(old, MappingPath);
+            }
+            catch { /* keep the old file in place on any failure */ }
         }
 
         public static string DefaultFor(int layout)
@@ -1494,6 +1512,12 @@ LS_Right = Right | | hold
         public static Icon Get()
         {
             if (icon != null) return icon;
+            try
+            {
+                icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath);
+                if (icon != null) return icon;
+            }
+            catch { }
             using (var bmp = new Bitmap(32, 32))
             using (var g = Graphics.FromImage(bmp))
             {
@@ -1516,7 +1540,7 @@ LS_Right = Right | | hold
         const string RunKey = @"Software\Microsoft\Windows\CurrentVersion\Run";
         const string RunValue = "GolfDeck";
         const string AppKey = @"Software\GolfDeck";
-        public const string Version = "1.6";
+        public const string Version = "1.7";
 
         Engine engine = new Engine();
         BoardPanel board;
@@ -1525,7 +1549,7 @@ LS_Right = Right | | hold
         CheckBox chkAutostart;
         RadioButton rbVk, rbScan;
         Label lblConn, lblInfo;
-        ToolStripMenuItem trimMenu, btnColMenu, boardMenu, layoutMenu;
+        bool closeToTray = true;
         bool exiting;
         bool startMinimized;
         bool suppressModeEvents;
@@ -1575,11 +1599,12 @@ LS_Right = Right | | hold
 
             chkAutostart = new CheckBox();
             chkAutostart.Text = "Start with Windows";
+            chkAutostart.FlatStyle = FlatStyle.Flat;
             chkAutostart.ForeColor = Color.Gainsboro;
             chkAutostart.Location = new Point(Ui.X(18), Ui.X(12));
             chkAutostart.AutoSize = true;
             chkAutostart.Checked = GetAutostart();
-            chkAutostart.CheckedChanged += delegate { SetAutostart(chkAutostart.Checked); };
+            chkAutostart.CheckedChanged += delegate { SetAutostart(chkAutostart.Checked); SyncControlAccents(); };
             bottom.Controls.Add(chkAutostart);
 
             var lblMode = new Label();
@@ -1603,64 +1628,16 @@ LS_Right = Right | | hold
             bottom.Controls.Add(btnReload);
             // (MakeButton scales x/y internally)
 
-            // options: layout + colour choices matching the physical box editions
+            // options: layout + colour choices, opened as a popup window
             if (!Theme.Forced)
             {
                 Theme.Trim = GetSetting("TrimColor", 0);
                 Theme.Btn = GetSetting("ButtonColor", 0);
                 Theme.Board = GetSetting("BoardColor", 0);
             }
+            closeToTray = GetSetting("CloseToTray", 1) != 0;
             var btnOptions = MakeButton("Options", 500, 72);
-            var optMenu = new ContextMenuStrip();
-
-            layoutMenu = new ToolStripMenuItem("Board layout");
-            string[] layouts = { "V1", "V2" };
-            for (int i = 0; i < 2; i++)
-            {
-                int idx = i;
-                var li = new ToolStripMenuItem(layouts[i]);
-                li.Click += delegate { SwitchLayout(idx); };
-                layoutMenu.DropDownItems.Add(li);
-            }
-
-            var presetMenu = new ToolStripMenuItem("Edition presets");
-            AddPreset(presetMenu, "Original (black / green)", 0, 0, 0);
-            AddPreset(presetMenu, "Green Jacket", 1, 1, 2);
-            AddPreset(presetMenu, "Red && White", 2, 1, 1);
-            AddPreset(presetMenu, "Red, White && Blue", 3, 1, 3);
-
-            trimMenu = new ToolStripMenuItem("Letters && top trim colour");
-            btnColMenu = new ToolStripMenuItem("Button colour");
-            boardMenu = new ToolStripMenuItem("Board colour");
-            string[] trims = { "Green", "White", "Yellow" };
-            string[] btncols = { "Black", "White", "Yellow", "Red" };
-            string[] boards = { "Black", "Green Jacket", "Red", "Blue" };
-            for (int i = 0; i < 3; i++)
-            {
-                int idx = i;
-                var t = new ToolStripMenuItem(trims[i]);
-                t.Click += delegate { Theme.Trim = idx; SetSetting("TrimColor", idx); RefreshTheme(); };
-                trimMenu.DropDownItems.Add(t);
-            }
-            for (int i = 0; i < 4; i++)
-            {
-                int idx = i;
-                var b = new ToolStripMenuItem(btncols[i]);
-                b.Click += delegate { Theme.Btn = idx; SetSetting("ButtonColor", idx); RefreshTheme(); };
-                btnColMenu.DropDownItems.Add(b);
-                var bo = new ToolStripMenuItem(boards[i]);
-                bo.Click += delegate { Theme.Board = idx; SetSetting("BoardColor", idx); RefreshTheme(); };
-                boardMenu.DropDownItems.Add(bo);
-            }
-            optMenu.Items.Add(layoutMenu);
-            optMenu.Items.Add(presetMenu);
-            optMenu.Items.Add(new ToolStripSeparator());
-            optMenu.Items.Add(boardMenu);
-            optMenu.Items.Add(btnColMenu);
-            optMenu.Items.Add(trimMenu);
-            optMenu.Items.Add(new ToolStripSeparator());
-            optMenu.Items.Add("Check for updates", null, delegate { StartUpdateCheck(true); });
-            btnOptions.Click += delegate { optMenu.Show(btnOptions, new Point(0, btnOptions.Height)); };
+            btnOptions.Click += delegate { ShowOptions(); };
             bottom.Controls.Add(btnOptions);
             RefreshTheme();
 
@@ -1720,18 +1697,6 @@ LS_Right = Right | | hold
             timer.Start();
         }
 
-        void AddPreset(ToolStripMenuItem parent, string name, int boardCol, int trim, int btn)
-        {
-            var p = new ToolStripMenuItem(name);
-            p.Click += delegate
-            {
-                Theme.Board = boardCol; Theme.Trim = trim; Theme.Btn = btn;
-                SetSetting("BoardColor", boardCol); SetSetting("TrimColor", trim); SetSetting("ButtonColor", btn);
-                RefreshTheme();
-            };
-            parent.DropDownItems.Add(p);
-        }
-
         void SwitchLayout(int idx)
         {
             if (idx != AppState.Layout)
@@ -1753,17 +1718,184 @@ LS_Right = Right | | hold
 
         void RefreshTheme()
         {
-            for (int i = 0; i < 3; i++)
-                ((ToolStripMenuItem)trimMenu.DropDownItems[i]).Checked = Theme.Trim == i;
-            for (int i = 0; i < 4; i++)
-            {
-                ((ToolStripMenuItem)btnColMenu.DropDownItems[i]).Checked = Theme.Btn == i;
-                ((ToolStripMenuItem)boardMenu.DropDownItems[i]).Checked = Theme.Board == i;
-            }
-            for (int i = 0; i < 2; i++)
-                ((ToolStripMenuItem)layoutMenu.DropDownItems[i]).Checked = AppState.Layout == i;
+            SyncControlAccents();
             board.Invalidate();
             UpdateStatus();
+        }
+
+        // checked controls light up in the active trim accent
+        void SyncControlAccents()
+        {
+            if (chkAutostart == null) return;
+            chkAutostart.ForeColor = chkAutostart.Checked ? Theme.Accent : Color.Gainsboro;
+            rbVk.ForeColor = rbVk.Checked ? Theme.Accent : Color.Gainsboro;
+            rbScan.ForeColor = rbScan.Checked ? Theme.Accent : Color.Gainsboro;
+        }
+
+        // ---- options popup ----
+
+        Label AddOptLabel(Form f, string text, int x, int y, bool header)
+        {
+            var l = new Label();
+            l.Text = text;
+            l.AutoSize = true;
+            l.Location = new Point(Ui.X(x), Ui.X(y));
+            l.ForeColor = header ? Theme.Accent : Color.FromArgb(150, 150, 155);
+            f.Controls.Add(l);
+            return l;
+        }
+
+        RadioButton AddOptRadio(Form f, string text, int x, int y)
+        {
+            var r = new RadioButton();
+            r.Text = text;
+            r.AutoSize = true;
+            r.Location = new Point(Ui.X(x), Ui.X(y));
+            r.FlatStyle = FlatStyle.Flat;
+            r.ForeColor = Color.Gainsboro;
+            r.CheckedChanged += delegate { r.ForeColor = r.Checked ? Theme.Accent : Color.Gainsboro; };
+            f.Controls.Add(r);
+            return r;
+        }
+
+        ComboBox AddOptCombo(Form f, string[] items, int x, int y, int w)
+        {
+            var c = new ComboBox();
+            c.DropDownStyle = ComboBoxStyle.DropDownList;
+            foreach (var it in items) c.Items.Add(it);
+            c.Bounds = new Rectangle(Ui.X(x), Ui.X(y), Ui.X(w), Ui.X(24));
+            c.FlatStyle = FlatStyle.Flat;
+            c.BackColor = Color.FromArgb(36, 37, 40);
+            c.ForeColor = Color.Gainsboro;
+            c.DrawMode = DrawMode.OwnerDrawFixed;
+            c.DrawItem += OptComboDrawItem;
+            f.Controls.Add(c);
+            return c;
+        }
+
+        void OptComboDrawItem(object sender, DrawItemEventArgs e)
+        {
+            var c = (ComboBox)sender;
+            bool sel = (e.State & DrawItemState.Selected) != 0;
+            using (var bg = new SolidBrush(sel ? Theme.Accent : Color.FromArgb(36, 37, 40)))
+                e.Graphics.FillRectangle(bg, e.Bounds);
+            if (e.Index >= 0)
+            {
+                using (var br = new SolidBrush(sel ? Color.FromArgb(20, 22, 16) : Color.Gainsboro))
+                    e.Graphics.DrawString(c.Items[e.Index].ToString(), c.Font, br, e.Bounds.X + 4, e.Bounds.Y + 2);
+            }
+        }
+
+        Button AddOptButton(Form f, string text, int x, int y, int w, int h)
+        {
+            var b = new Button();
+            b.Text = text;
+            b.Bounds = new Rectangle(Ui.X(x), Ui.X(y), Ui.X(w), Ui.X(h));
+            b.FlatStyle = FlatStyle.Flat;
+            b.ForeColor = Color.Gainsboro;
+            b.BackColor = Color.FromArgb(36, 37, 40);
+            b.FlatAppearance.BorderColor = Color.FromArgb(64, 66, 70);
+            b.FlatAppearance.MouseOverBackColor = Color.FromArgb(48, 50, 54);
+            f.Controls.Add(b);
+            return b;
+        }
+
+        public Form BuildOptionsDialog()
+        {
+            var dlg = new Form();
+            dlg.Text = "GolfDeck options";
+            dlg.FormBorderStyle = FormBorderStyle.FixedDialog;
+            dlg.MaximizeBox = false;
+            dlg.MinimizeBox = false;
+            dlg.StartPosition = FormStartPosition.CenterParent;
+            dlg.BackColor = Color.FromArgb(19, 19, 21);
+            dlg.Font = Font;
+            dlg.Icon = AppIcon.Get();
+            dlg.ClientSize = new Size(Ui.X(420), Ui.X(300));
+
+            bool[] init = { true };
+
+            AddOptLabel(dlg, "Board layout", 16, 12, true);
+            var rbL1 = AddOptRadio(dlg, "V1  (PUTT top-left)", 16, 34);
+            var rbL2 = AddOptRadio(dlg, "V2  (SCORECARD top-left)", 180, 34);
+            if (AppState.Layout == 1) rbL2.Checked = true; else rbL1.Checked = true;
+            rbL1.CheckedChanged += delegate { if (!init[0] && rbL1.Checked) SwitchLayout(0); };
+            rbL2.CheckedChanged += delegate { if (!init[0] && rbL2.Checked) SwitchLayout(1); };
+
+            AddOptLabel(dlg, "Colours", 16, 68, true);
+            AddOptLabel(dlg, "Board", 16, 90, false);
+            AddOptLabel(dlg, "Buttons", 148, 90, false);
+            AddOptLabel(dlg, "Letters && trim", 280, 90, false);
+            var cbBoard = AddOptCombo(dlg, new string[] { "Black", "Green Jacket", "Red", "Blue" }, 16, 110, 120);
+            var cbBtn = AddOptCombo(dlg, new string[] { "Black", "White", "Yellow", "Red" }, 148, 110, 120);
+            var cbTrim = AddOptCombo(dlg, new string[] { "Green", "White", "Yellow" }, 280, 110, 120);
+            cbBoard.SelectedIndex = Theme.Board;
+            cbBtn.SelectedIndex = Theme.Btn;
+            cbTrim.SelectedIndex = Theme.Trim;
+            EventHandler colorChange = delegate
+            {
+                if (init[0]) return;
+                Theme.Board = cbBoard.SelectedIndex;
+                Theme.Btn = cbBtn.SelectedIndex;
+                Theme.Trim = cbTrim.SelectedIndex;
+                SetSetting("BoardColor", Theme.Board);
+                SetSetting("ButtonColor", Theme.Btn);
+                SetSetting("TrimColor", Theme.Trim);
+                RefreshTheme();
+            };
+            cbBoard.SelectedIndexChanged += colorChange;
+            cbBtn.SelectedIndexChanged += colorChange;
+            cbTrim.SelectedIndexChanged += colorChange;
+
+            AddOptLabel(dlg, "Edition presets", 16, 148, true);
+            string[] pnames = { "Original", "Green Jacket", "Red && White", "Red, White && Blue" };
+            int[][] pvals = { new int[] { 0, 0, 0 }, new int[] { 1, 1, 2 }, new int[] { 2, 1, 1 }, new int[] { 3, 1, 3 } };
+            for (int i = 0; i < 4; i++)
+            {
+                int idx = i;
+                var pb = AddOptButton(dlg, pnames[i], 16 + (i % 2) * 196, 170 + (i / 2) * 34, 188, 28);
+                pb.Click += delegate
+                {
+                    init[0] = true;
+                    cbBoard.SelectedIndex = pvals[idx][0];
+                    cbTrim.SelectedIndex = pvals[idx][1];
+                    cbBtn.SelectedIndex = pvals[idx][2];
+                    init[0] = false;
+                    colorChange(null, null);
+                };
+            }
+
+            var chkTray = new CheckBox();
+            chkTray.Text = "Close button hides to the tray instead of exiting";
+            chkTray.AutoSize = true;
+            chkTray.Location = new Point(Ui.X(16), Ui.X(242));
+            chkTray.FlatStyle = FlatStyle.Flat;
+            chkTray.ForeColor = Color.Gainsboro;
+            chkTray.Checked = closeToTray;
+            chkTray.ForeColor = chkTray.Checked ? Theme.Accent : Color.Gainsboro;
+            chkTray.CheckedChanged += delegate
+            {
+                closeToTray = chkTray.Checked;
+                SetSetting("CloseToTray", closeToTray ? 1 : 0);
+                chkTray.ForeColor = chkTray.Checked ? Theme.Accent : Color.Gainsboro;
+            };
+            dlg.Controls.Add(chkTray);
+
+            var bUpd = AddOptButton(dlg, "Check for updates", 16, 268, 150, 26);
+            bUpd.Click += delegate { StartUpdateCheck(true); };
+            var bFolder = AddOptButton(dlg, "Open mapping folder", 174, 268, 164, 26);
+            bFolder.Click += delegate { Process.Start("explorer.exe", "\"" + Config.Dir + "\""); };
+            var bClose = AddOptButton(dlg, "Close", 346, 268, 58, 26);
+            bClose.Click += delegate { dlg.Close(); };
+
+            init[0] = false;
+            return dlg;
+        }
+
+        void ShowOptions()
+        {
+            using (var dlg = BuildOptionsDialog())
+                dlg.ShowDialog(this);
         }
 
         public void DemoPress(string csv)
@@ -1779,10 +1911,12 @@ LS_Right = Right | | hold
         {
             var r = new RadioButton();
             r.Text = text;
+            r.FlatStyle = FlatStyle.Flat;
             r.ForeColor = Color.Gainsboro;
             r.Location = new Point(x, y);
             r.AutoSize = true;
             r.CheckedChanged += OnModeChanged;
+            r.CheckedChanged += delegate { SyncControlAccents(); };
             return r;
         }
 
@@ -2011,7 +2145,7 @@ LS_Right = Right | | hold
 
         protected override void OnFormClosing(FormClosingEventArgs e)
         {
-            if (!exiting && e.CloseReason == CloseReason.UserClosing)
+            if (!exiting && e.CloseReason == CloseReason.UserClosing && closeToTray)
             {
                 e.Cancel = true;
                 Hide();
@@ -2114,14 +2248,6 @@ LS_Right = Right | | hold
         [STAThread]
         static void Main(string[] args)
         {
-            bool created;
-            var mutex = new Mutex(true, "GolfDeck_SingleInstance", out created);
-            if (!created)
-            {
-                MessageBox.Show("GolfDeck is already running (check the tray).", "GolfDeck");
-                return;
-            }
-
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
 
@@ -2131,9 +2257,11 @@ LS_Right = Right | | hold
             string press = null;
             int layoutArg = -1;
             float forcedScale = 0f;
+            bool shotOptions = false;
             for (int i = 0; i < args.Length; i++)
             {
                 if (args[i] == "--minimized") minimized = true;
+                else if (args[i] == "--shotoptions") shotOptions = true;
                 else if (args[i] == "--screenshot" && i + 1 < args.Length) screenshot = args[++i];
                 else if (args[i] == "--press" && i + 1 < args.Length) press = args[++i];
                 else if (args[i] == "--scale" && i + 1 < args.Length)
@@ -2158,6 +2286,19 @@ LS_Right = Right | | hold
                 }
             }
 
+            // screenshot runs are transient and skip the single-instance guard
+            Mutex mutex = null;
+            if (screenshot == null)
+            {
+                bool created;
+                mutex = new Mutex(true, "GolfDeck_SingleInstance", out created);
+                if (!created)
+                {
+                    MessageBox.Show("GolfDeck is already running (check the tray).", "GolfDeck");
+                    return;
+                }
+            }
+
             Ui.Init(forcedScale);
 
             // resolve board layout: arg > saved > first-launch prompt
@@ -2178,6 +2319,7 @@ LS_Right = Right | | hold
             AppState.Layout = layout;
             AppState.NoUpdateCheck = screenshot != null;
 
+            Config.MigrateOldMapping();
             if (!File.Exists(Config.MappingPath))
                 File.WriteAllText(Config.MappingPath, Config.DefaultFor(layout));
 
@@ -2190,13 +2332,22 @@ LS_Right = Right | | hold
                 form.Show();
                 if (press != null) form.DemoPress(press);
                 Application.DoEvents();
-                using (var full = new Bitmap(form.Width, form.Height))
+                Form target = form;
+                if (shotOptions)
                 {
-                    form.DrawToBitmap(full, new Rectangle(0, 0, form.Width, form.Height));
+                    target = form.BuildOptionsDialog();
+                    target.StartPosition = FormStartPosition.Manual;
+                    target.Location = new Point(-4000, -4000);
+                    target.Show();
+                    Application.DoEvents();
+                }
+                using (var full = new Bitmap(target.Width, target.Height))
+                {
+                    target.DrawToBitmap(full, new Rectangle(0, 0, target.Width, target.Height));
                     // crop to the client area: no window chrome in the capture
-                    Point co = form.PointToScreen(Point.Empty);
-                    var client = new Rectangle(co.X - form.Location.X, co.Y - form.Location.Y,
-                        form.ClientSize.Width, form.ClientSize.Height);
+                    Point co = target.PointToScreen(Point.Empty);
+                    var client = new Rectangle(co.X - target.Location.X, co.Y - target.Location.Y,
+                        target.ClientSize.Width, target.ClientSize.Height);
                     using (var crop = full.Clone(client, full.PixelFormat))
                         crop.Save(screenshot, System.Drawing.Imaging.ImageFormat.Png);
                 }
