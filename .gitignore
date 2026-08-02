@@ -1,3 +1,5 @@
 *.exe
-shot.png
+*.png
+!docs/*.png
 mapping.txt
+*.zip

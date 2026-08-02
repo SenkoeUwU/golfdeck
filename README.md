@@ -1,37 +1,53 @@
 # GolfDeck
 
-Companion app for the 3D-printed golf control box (hacked Xbox controller). Reads the pad through XInput and emulates keyboard presses for GSPro. Single exe, no install, no dependencies beyond stock Windows.
+Companion app for 3D-printed GSPro control boxes built from Xbox controller internals. Reads the box through XInput and sends the matching GSPro keyboard shortcuts. Single portable exe, no install, no dependencies beyond stock Windows 10/11.
 
-## Use
+**[Download the latest release](https://github.com/SenkoeUwU/golfdeck/releases/latest/download/GolfDeck.zip)**
 
-1. Copy `GolfDeck.exe` to the sim PC (any folder).
-2. Run it. First launch asks which board layout you have (V1 = PUTT top-left, V2 = SCORECARD top-left) and writes a `mapping.txt` with that layout's GSPro default keys.
-3. The window mirrors the physical board. Buttons light up when pressed, so it doubles as a wiring tester. Clicking an on-screen button sends its key (note: the click focuses GolfDeck itself, so use it to verify sending works, not to drive GSPro).
-4. Tick "Start with Windows" to auto-start minimized to tray. Close button hides to tray; exit from the tray icon.
+![V1 board](docs/board-v1.png)
 
-The Options button holds the board layout switch, edition presets (Original, Green Jacket, Red & White, Red White & Blue), and individual board/button/letter colours.
+## Features
 
-If GSPro runs elevated, use the tray menu "Restart as administrator" so keystrokes are not blocked by UIPI.
+- On-screen replica of the physical board. Buttons light up when pressed, so it doubles as a wiring tester. Click a button with the mouse to test its key.
+- V1 and V2 board layouts, chosen on first launch, switchable later.
+- Edition presets matching the box colorways (Original, Green Jacket, Red & White, Red White & Blue), plus individual board, button and letter colors.
+- All bindings in a plain-text `mapping.txt` (per-button key, label, hold/tap/repeat mode). Defaults are the standard GSPro shortcuts.
+- Start with Windows (minimized to tray), tray status, restart-as-administrator for elevated GSPro.
+- Two key injection modes (virtual keys and scancodes) for games that filter one or the other.
 
-## Key send modes
+![V2 board, Green Jacket](docs/board-v2.png)
+![V2 board, Red White & Blue](docs/edition-rwb.png)
 
-- **Virtual keys** - normal SendInput. Default.
-- **Scancodes** - SendInput with scancodes only. Try this if GSPro ignores keys that Notepad receives.
+## Install
+
+1. Download `GolfDeck.zip` from the link above.
+2. Right-click the zip, Properties, check **Unblock**, OK. Then extract anywhere (e.g. `C:\GolfDeck`).
+3. Run `GolfDeck.exe` and pick your board layout (V1 = PUTT top-left, V2 = SCORECARD top-left).
+4. Plug in the box. Press buttons and watch them light up.
+5. Optional: tick "Start with Windows".
+
+Windows SmartScreen may warn about an unknown publisher the first time. The app is unsigned; click "More info", then "Run anyway". See SETUP.txt inside the zip for the full walkthrough.
+
+If GSPro runs as administrator, use the tray menu "Restart as administrator" once so keystrokes are not blocked.
 
 ## Mapping
 
-Edit `mapping.txt` (button in the GUI opens it), then "Reload mapping". Format:
+`mapping.txt` sits next to the exe and is created on first run. Format:
 
 ```
 input = keys | label | mode | repeat_ms
 ```
 
 - inputs: `A B X Y LB RB LT RT Menu View LS RS`, `DPad_*`, `LS_*`, `RS_*` (stick directions)
-- keys: `K`, `Ctrl+M`, `Shift+F5`, `'` etc.
+- keys: `K`, `Ctrl+M`, `Shift+F5`, `Space` and so on
 - modes: `hold` (held while pressed), `tap` (once per press), `repeat` (every `repeat_ms` while held)
 
-Defaults replicate the old JoyToKey profile. Labels are guesses at which physical button is wired where; fix them in `mapping.txt` if PUTT is not the A button etc.
+The board GUI attaches mappings by label, so if a physical button lights the wrong spot, swap the labels in `mapping.txt`. Edit and reload from inside the app.
 
-## Build
+## Build from source
 
-Run `build.bat`. Uses the C# compiler that ships inside Windows (.NET Framework 4.8), so no SDK install is needed.
+Run `build.bat`. It uses the C# compiler that ships inside Windows (.NET Framework 4.8), so no SDK install is needed. The whole app is one file, `Program.cs`.
+
+## License
+
+MIT. See [LICENSE](LICENSE).

@@ -1,0 +1,25 @@
+# Changelog
+
+## v1.3
+
+- Board lettering switched to upright Bahnschrift SemiCondensed (was italic condensed), fixing crushed text at small sizes.
+- Window now scales with display DPI, fixing crushed text on 125/150% displays.
+- Center arrow cross redrawn as vector shapes, larger and crisp at any resolution.
+
+## v1.2
+
+- V2 board layout (SCORECARD / FAST FWD / HEATMAP / HIDE OBJECT) with first-launch layout picker.
+- Edition presets: Original, Green Jacket, Red & White, Red White & Blue; individual board, button and letter color options.
+- Green secondary print (C-up, C-down, S1, S2, tee marks, WAKE) placed as printed on the product.
+- Click-to-test: mouse press on an on-screen button sends its key.
+- Status bar shows last key sent and mapping errors; tray balloon and live tray tooltip; window position remembered.
+
+## v1.1
+
+- Options menu with box color choices.
+- Arrow cluster laid out as an equal-arm plus.
+- Default binds corrected to GSPro standard shortcuts, board slots anchored by label.
+
+## v1.0
+
+- First release: XInput to keyboard bridge, board-replica GUI, plain-text mapping, autostart, tray, virtual-key and scancode send modes.
