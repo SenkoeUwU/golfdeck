@@ -4,8 +4,11 @@ using System.Diagnostics;
 using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.IO;
+using System.IO.Compression;
+using System.Net;
 using System.Runtime.InteropServices;
 using System.Security.Principal;
+using System.Text;
 using System.Threading;
 using System.Windows.Forms;
 using Microsoft.Win32;
@@ -569,6 +572,121 @@ LS_Right = Right | | hold
     static class AppState
     {
         public static int Layout = 0; // 0 = V1 board, 1 = V2 board
+        public static bool NoUpdateCheck; // screenshot/test runs skip the launch check
+    }
+
+    // ---------------- update checker (GitHub releases) ----------------
+
+    class UpdateInfo
+    {
+        public string Tag;
+        public string Body;
+        public string ZipUrl;
+    }
+
+    static class Updater
+    {
+        const string ApiLatest = "https://api.github.com/repos/SenkoeUwU/golfdeck/releases/latest";
+
+        public static UpdateInfo FetchLatest()
+        {
+            ServicePointManager.SecurityProtocol |= SecurityProtocolType.Tls12;
+            string json;
+            using (var wc = new WebClient())
+            {
+                wc.Headers.Add("User-Agent", "GolfDeck-updater");
+                json = wc.DownloadString(ApiLatest);
+            }
+            var info = new UpdateInfo();
+            info.Tag = JsonString(json, "tag_name");
+            info.Body = JsonString(json, "body");
+            info.ZipUrl = JsonString(json, "browser_download_url");
+            if (info.Tag == null || info.ZipUrl == null) return null;
+            return info;
+        }
+
+        public static bool IsNewer(string tag, string current)
+        {
+            Version remote, local;
+            if (!Version.TryParse(Normalize(tag), out remote)) return false;
+            if (!Version.TryParse(Normalize(current), out local)) return false;
+            return remote > local;
+        }
+
+        static string Normalize(string v)
+        {
+            v = v.Trim().TrimStart('v', 'V');
+            return v.IndexOf('.') < 0 ? v + ".0" : v;
+        }
+
+        // minimal JSON string-field extractor (first occurrence of "key": "...")
+        public static string JsonString(string json, string key)
+        {
+            int i = json.IndexOf("\"" + key + "\"", StringComparison.Ordinal);
+            if (i < 0) return null;
+            i = json.IndexOf(':', i);
+            if (i < 0) return null;
+            i = json.IndexOf('"', i);
+            if (i < 0) return null;
+            var sb = new StringBuilder();
+            for (int p = i + 1; p < json.Length; p++)
+            {
+                char c = json[p];
+                if (c == '\\' && p + 1 < json.Length)
+                {
+                    char n = json[++p];
+                    if (n == 'n') sb.Append('\n');
+                    else if (n == 'r') { }
+                    else if (n == 't') sb.Append('\t');
+                    else if (n == 'u' && p + 4 < json.Length)
+                    {
+                        sb.Append((char)Convert.ToInt32(json.Substring(p + 1, 4), 16));
+                        p += 4;
+                    }
+                    else sb.Append(n);
+                }
+                else if (c == '"') break;
+                else sb.Append(c);
+            }
+            return sb.ToString();
+        }
+
+        // download the release zip, stage the new exe, swap it in via a helper
+        // script after this process exits, then relaunch
+        public static void Apply(UpdateInfo info)
+        {
+            string temp = Path.Combine(Path.GetTempPath(), "GolfDeckUpdate");
+            Directory.CreateDirectory(temp);
+            string zip = Path.Combine(temp, "GolfDeck.zip");
+            using (var wc = new WebClient())
+            {
+                wc.Headers.Add("User-Agent", "GolfDeck-updater");
+                wc.DownloadFile(info.ZipUrl, zip);
+            }
+            string extract = Path.Combine(temp, "extracted");
+            if (Directory.Exists(extract)) Directory.Delete(extract, true);
+            ZipFile.ExtractToDirectory(zip, extract);
+            string[] found = Directory.GetFiles(extract, "GolfDeck.exe", SearchOption.AllDirectories);
+            if (found.Length == 0) throw new Exception("GolfDeck.exe not found in the update package.");
+
+            string cur = Application.ExecutablePath;
+            string staged = cur + ".new";
+            File.Copy(found[0], staged, true);
+
+            string script = Path.Combine(temp, "apply-update.cmd");
+            File.WriteAllText(script,
+                "@echo off\r\n" +
+                "ping 127.0.0.1 -n 3 > nul\r\n" +
+                "move /y \"" + cur + "\" \"" + cur + ".old\" > nul\r\n" +
+                "move /y \"" + staged + "\" \"" + cur + "\" > nul\r\n" +
+                "start \"\" \"" + cur + "\"\r\n" +
+                "ping 127.0.0.1 -n 3 > nul\r\n" +
+                "del \"" + cur + ".old\" > nul 2>&1\r\n");
+            var psi = new ProcessStartInfo(script);
+            psi.WindowStyle = ProcessWindowStyle.Hidden;
+            psi.UseShellExecute = true;
+            Process.Start(psi);
+        }
     }
 
     // ---------------- theme (matches the physical box's ordering options) ----------------
@@ -1151,7 +1269,7 @@ LS_Right = Right | | hold
         const string RunKey = @"Software\Microsoft\Windows\CurrentVersion\Run";
         const string RunValue = "GolfDeck";
         const string AppKey = @"Software\GolfDeck";
-        public const string Version = "1.3";
+        public const string Version = "1.4";
 
         Engine engine = new Engine();
         BoardPanel board;
@@ -1293,6 +1411,8 @@ LS_Right = Right | | hold
             optMenu.Items.Add(boardMenu);
             optMenu.Items.Add(btnColMenu);
             optMenu.Items.Add(trimMenu);
+            optMenu.Items.Add(new ToolStripSeparator());
+            optMenu.Items.Add("Check for updates", null, delegate { StartUpdateCheck(true); });
             btnOptions.Click += delegate { optMenu.Show(btnOptions, new Point(0, btnOptions.Height)); };
             bottom.Controls.Add(btnOptions);
             RefreshTheme();
@@ -1538,6 +1658,99 @@ LS_Right = Right | | hold
         {
             base.OnShown(e);
             if (startMinimized) Hide();
+            if (!AppState.NoUpdateCheck && DateTime.UtcNow >= GetSnoozeUntil())
+                StartUpdateCheck(false);
+        }
+
+        // ---- update check ----
+
+        DateTime GetSnoozeUntil()
+        {
+            string s = GetSettingString("UpdateSnooze", "");
+            DateTime dt;
+            if (DateTime.TryParse(s, null, System.Globalization.DateTimeStyles.RoundtripKind, out dt))
+                return dt;
+            return DateTime.MinValue;
+        }
+
+        void StartUpdateCheck(bool manual)
+        {
+            ThreadPool.QueueUserWorkItem(delegate
+            {
+                UpdateInfo info = null;
+                bool failed = false;
+                try { info = Updater.FetchLatest(); }
+                catch { failed = true; }
+                try
+                {
+                    BeginInvoke((MethodInvoker)delegate { ShowUpdateResult(info, failed, manual); });
+                }
+                catch { /* form gone */ }
+            });
+        }
+
+        void ShowUpdateResult(UpdateInfo info, bool failed, bool manual)
+        {
+            if (failed || info == null)
+            {
+                if (manual)
+                    MessageBox.Show(this, "Update check failed. No network, or the release feed is unavailable.",
+                        "GolfDeck", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+            if (!Updater.IsNewer(info.Tag, Version))
+            {
+                if (manual)
+                    MessageBox.Show(this, "You are on the latest version (v" + Version + ").",
+                        "GolfDeck", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+
+            string summary = (info.Body ?? "").Trim();
+            if (summary.Length > 600) summary = summary.Substring(0, 600) + "...";
+            if (summary.Length == 0) summary = "(no release notes)";
+
+            if (!Visible) RestoreFromTray();
+            var res = MessageBox.Show(this,
+                "Update available: " + info.Tag + " (you have v" + Version + ")\r\n\r\n" +
+                summary + "\r\n\r\nWould you like to update?",
+                "GolfDeck update", MessageBoxButtons.YesNo, MessageBoxIcon.Information);
+
+            if (res == DialogResult.Yes)
+            {
+                try
+                {
+                    Updater.Apply(info);
+                    exiting = true;
+                    Close();
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show(this, "Update failed: " + ex.Message +
+                        "\r\n\r\nDownload manually from github.com/SenkoeUwU/golfdeck/releases",
+                        "GolfDeck", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                }
+            }
+            else
+            {
+                SetSettingString("UpdateSnooze", DateTime.UtcNow.AddDays(7).ToString("o"));
+            }
+        }
+
+        static string GetSettingString(string name, string def)
+        {
+            using (var k = Registry.CurrentUser.OpenSubKey(AppKey))
+            {
+                if (k == null) return def;
+                object v = k.GetValue(name);
+                return v is string ? (string)v : def;
+            }
+        }
+
+        static void SetSettingString(string name, string val)
+        {
+            using (var k = Registry.CurrentUser.CreateSubKey(AppKey))
+                k.SetValue(name, val);
         }
 
         protected override void OnResize(EventArgs e)
@@ -1707,6 +1920,7 @@ LS_Right = Right | | hold
                 }
             }
             AppState.Layout = layout;
+            AppState.NoUpdateCheck = screenshot != null;
 
             if (!File.Exists(Config.MappingPath))
                 File.WriteAllText(Config.MappingPath, Config.DefaultFor(layout));
