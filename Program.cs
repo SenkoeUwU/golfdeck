@@ -285,7 +285,10 @@ namespace GolfDeck
             {
                 string old = Path.Combine(Path.GetDirectoryName(Application.ExecutablePath), "mapping.txt");
                 if (File.Exists(old) && !File.Exists(MappingPath))
-                    File.Move(old, MappingPath);
+                {
+                    try { File.Move(old, MappingPath); }
+                    catch { File.Copy(old, MappingPath); } // read-only exe dir: copy, leave original
+                }
             }
             catch { /* keep the old file in place on any failure */ }
         }
@@ -1675,6 +1678,8 @@ LS_Right = Right | | hold
         System.Windows.Forms.Timer timer;
         NotifyIcon tray;
         bool closeToTray = true;
+        Form optionsDlg; // active options window, if open (message boxes parent here)
+        Form MsgOwner { get { return optionsDlg != null && !optionsDlg.IsDisposed ? optionsDlg : (Form)this; } }
         bool exiting;
         bool startMinimized;
         int statusTick = 999;
@@ -1736,6 +1741,7 @@ LS_Right = Right | | hold
             menu.Items.Add(verItem);
             menu.Items.Add(new ToolStripSeparator());
             menu.Items.Add("Show", null, delegate { RestoreFromTray(); });
+            menu.Items.Add("Options", null, delegate { RestoreFromTray(); ShowOptions(); });
             menu.Items.Add("Restart as administrator", null, delegate { RestartAsAdmin(); });
             menu.Items.Add(new ToolStripSeparator());
             menu.Items.Add("Exit", null, delegate { exiting = true; Close(); });
@@ -1757,7 +1763,7 @@ LS_Right = Right | | hold
                 AppState.Layout = idx;
                 SetSetting("Layout", idx);
                 board.SetLayout(idx);
-                if (MessageBox.Show(this,
+                if (MessageBox.Show(MsgOwner,
                     "Load the default GSPro mapping for the " + (idx == 1 ? "V2" : "V1") +
                     " board? This overwrites mapping.txt.",
                     "GolfDeck", MessageBoxButtons.YesNo, MessageBoxIcon.Question) == DialogResult.Yes)
@@ -1797,6 +1803,7 @@ LS_Right = Right | | hold
             b.TextAlign = ContentAlignment.MiddleLeft;
             StyleChoice(b, label, options[selectedIndex]);
             var menu = new ContextMenuStrip();
+            f.FormClosed += delegate { menu.Dispose(); };
             menu.Renderer = new DarkMenuRenderer();
             menu.ShowImageMargin = false;
             for (int i = 0; i < options.Length; i++)
@@ -1966,13 +1973,15 @@ LS_Right = Right | | hold
             bEdit.Click += delegate { Process.Start("notepad.exe", "\"" + Config.MappingPath + "\""); };
             var bReload = AddOptButton(dlg, "Reload mapping", 144, 364, 126, 26);
             bReload.Click += delegate { LoadMapping(true); };
-            var bFolder = AddOptButton(dlg, "Open mapping folder", 278, 364, 126, 26);
+            var bFolder = AddOptButton(dlg, "Open folder", 278, 364, 126, 26);
             bFolder.Click += delegate { Process.Start("explorer.exe", "\"" + Config.Dir + "\""); };
 
             var bUpd = AddOptButton(dlg, "Check for updates", 16, 396, 150, 26);
             bUpd.Click += delegate { StartUpdateCheck(true); };
             var bClose = AddOptButton(dlg, "Close", 346, 396, 58, 26);
             bClose.Click += delegate { dlg.Close(); };
+            bClose.DialogResult = DialogResult.Cancel;
+            dlg.CancelButton = bClose; // Esc closes
 
             return dlg;
         }
@@ -1980,7 +1989,11 @@ LS_Right = Right | | hold
         void ShowOptions()
         {
             using (var dlg = BuildOptionsDialog())
-                dlg.ShowDialog(this);
+            {
+                optionsDlg = dlg;
+                try { dlg.ShowDialog(this); }
+                finally { optionsDlg = null; }
+            }
         }
 
         public void DemoPress(string csv)
@@ -2001,7 +2014,7 @@ LS_Right = Right | | hold
             board.Invalidate();
             UpdateStatus();
             if (errors.Count > 0 && interactive)
-                MessageBox.Show(this, string.Join("\r\n", errors.ToArray()), "mapping.txt problems",
+                MessageBox.Show(MsgOwner, string.Join("\r\n", errors.ToArray()), "mapping.txt problems",
                     MessageBoxButtons.OK, MessageBoxIcon.Warning);
         }
 
@@ -2055,7 +2068,7 @@ LS_Right = Right | | hold
 
         void RestartAsAdmin()
         {
-            if (IsAdmin()) { MessageBox.Show(this, "Already running as administrator."); return; }
+            if (IsAdmin()) { MessageBox.Show(MsgOwner, "Already running as administrator."); return; }
             try
             {
                 var psi = new ProcessStartInfo(Application.ExecutablePath);
@@ -2115,14 +2128,14 @@ LS_Right = Right | | hold
             if (failed || info == null)
             {
                 if (manual)
-                    MessageBox.Show(this, "Update check failed. No network, or the release feed is unavailable.",
+                    MessageBox.Show(MsgOwner, "Update check failed. No network, or the release feed is unavailable.",
                         "GolfDeck", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 return;
             }
             if (!Updater.IsNewer(info.Tag, Version))
             {
                 if (manual)
-                    MessageBox.Show(this, "You are on the latest version (v" + Version + ").",
+                    MessageBox.Show(MsgOwner, "You are on the latest version (v" + Version + ").",
                         "GolfDeck", MessageBoxButtons.OK, MessageBoxIcon.Information);
                 return;
             }
@@ -2132,7 +2145,7 @@ LS_Right = Right | | hold
             if (summary.Length == 0) summary = "(no release notes)";
 
             if (!Visible) RestoreFromTray();
-            var res = MessageBox.Show(this,
+            var res = MessageBox.Show(MsgOwner,
                 "Update available: " + info.Tag + " (you have v" + Version + ")\r\n\r\n" +
                 summary + "\r\n\r\nWould you like to update?",
                 "GolfDeck update", MessageBoxButtons.YesNo, MessageBoxIcon.Information);
@@ -2147,7 +2160,7 @@ LS_Right = Right | | hold
                 }
                 catch (Exception ex)
                 {
-                    MessageBox.Show(this, "Update failed: " + ex.Message +
+                    MessageBox.Show(MsgOwner, "Update failed: " + ex.Message +
                         "\r\n\r\nDownload manually from github.com/SenkoeUwU/golfdeck/releases",
                         "GolfDeck", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 }
