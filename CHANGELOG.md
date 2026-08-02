@@ -1,5 +1,12 @@
 # Changelog
 
+## v1.6
+
+- Dual-function buttons: new `doubletap` mapping mode - single press sends one key, two quick presses (500ms window) send another, matching the physical V2 box behaviour (confirmed with the maker). A `taphold` mode (hold past a threshold instead) is also available.
+- V2 default mapping corrected to the maker's actual wiring (from the JoyToKey profile): all six green-print secondary functions (club up/down, scramble 1/2, tee left/right) now work, HIDE OBJECT sends B, and the WAKE button doubles as aim right.
+- Board captions show both keys on dual-function buttons ("T / I").
+- Click-to-test supports dual functions: single click for the primary, quick double click for the secondary.
+
 ## v1.5
 
 - Full display-scaling overhaul: the app now derives one scale factor from display DPI (capped so the window always fits the screen) and drives all geometry and text through it. Fixes crushed and overlapping UI at 125/150/200% display scaling and on small screens.

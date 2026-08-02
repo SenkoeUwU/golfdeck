@@ -242,9 +242,22 @@ namespace GolfDeck
         public List<ushort> Mods = new List<ushort>();
         public ushort Vk;
 
+        // taphold: second function fired when held past HoldMs
+        public int HoldMs = 500;
+        public string HoldKeysText = "";
+        public List<ushort> HoldMods = new List<ushort>();
+        public ushort HoldVk;
+
         public bool WasDown;
         public int NextRepeat;
         public bool Holding;
+        public int PressStart;
+        public bool HoldFired;
+
+        public string CaptionText
+        {
+            get { return HoldKeysText.Length > 0 ? KeysText + " / " + HoldKeysText : KeysText; }
+        }
     }
 
     static class Config
@@ -264,29 +277,30 @@ namespace GolfDeck
             return layout == 1 ? DefaultMappingV2 : DefaultMappingV1;
         }
 
-        public const string DefaultMappingV2 = @"# GolfDeck mapping - V2 board (defaults = GSPro standard shortcuts)
+        public const string DefaultMappingV2 = @"# GolfDeck mapping - V2 board
+# Wiring and dual functions taken from the maker's JoyToKey profile.
 #
-# GSPro keys: T scorecard, Space fast forward, Y heat map, H hide UI,
-#             J shot cam, Ctrl+M mulligan, U putt toggle, O flyover,
-#             arrow keys aim
-# green print on the box (C/S/T/WAKE) marks hardware secondary functions
+# doubletap buttons: single press sends the first key, pressing twice
+# quickly (within the window, ms, 4th field) sends the second key
+# (the green print on the box).
 #
-# format:   input = keys | label | mode | repeat_ms
-#   (see the V1 template or README for details)
+# format:   input = keys | label | mode | window_ms | second keys
 #
 # settings (percent):
 stick_threshold = 37
 trigger_threshold = 25
 
-X       = T       | SCORECARD   | tap
-Y       = Space   | FAST FWD    | tap
-LB      = Y       | HEATMAP     | tap
-RB      = H       | HIDE OBJECT | tap
-B       = J       | SHOTCAM     | tap
-Menu    = Ctrl+M  | MULLIGAN    | tap
-A       = U       | PUTT        | tap
-LT      = O       | FLYOVER     | tap
+Y       = T       | SCORECARD   | doubletap | 500 | I
+X       = Space   | FAST FWD    | tap
+B       = Y       | HEATMAP     | doubletap | 500 | 1
+A       = B       | HIDE OBJECT | doubletap | 500 | 2
+RB      = J       | SHOTCAM     | doubletap | 500 | K
+LB      = Ctrl+M  | MULLIGAN    | tap
+RT      = U       | PUTT        | doubletap | 500 | C
+LT      = O       | FLYOVER     | doubletap | 500 | V
 
+# WAKE button (Menu input) doubles as aim right
+Menu     = Right | | hold
 LS_Up    = Up    | | hold
 LS_Down  = Down  | | hold
 LS_Left  = Left  | | hold
@@ -302,9 +316,13 @@ LS_Right = Right | | hold
 # format:   input = keys | label | mode | repeat_ms
 #   keys:   single key or combo with +   (K, Ctrl+M, Shift+F5)
 #   label:  which printed board button this is (GUI matches by label)
-#   mode:   hold   = key held down while button held (default)
-#           tap    = one keypress per button press
-#           repeat = keypress repeats every repeat_ms while held
+#   mode:   hold    = key held down while button held (default)
+#           tap     = one keypress per button press
+#           repeat  = keypress repeats every repeat_ms while held
+#           taphold   = quick press sends keys, holding past repeat_ms sends
+#                       the 5th field's keys (input = k | label | taphold | 500 | k2)
+#           doubletap = single press sends keys, two presses within repeat_ms
+#                       send the 5th field's keys
 #
 # inputs:  A B X Y LB RB LT RT Menu View LS RS
 #          DPad_Up DPad_Down DPad_Left DPad_Right
@@ -395,9 +413,9 @@ LS_Right = Right | | hold
                 if (parts.Length > 3)
                 {
                     int ms;
-                    if (int.TryParse(parts[3].Trim(), out ms) && ms >= 20) e.RepeatMs = ms;
+                    if (int.TryParse(parts[3].Trim(), out ms) && ms >= 20) { e.RepeatMs = ms; e.HoldMs = ms; }
                 }
-                if (e.Mode != "hold" && e.Mode != "tap" && e.Mode != "repeat")
+                if (e.Mode != "hold" && e.Mode != "tap" && e.Mode != "repeat" && e.Mode != "taphold" && e.Mode != "doubletap")
                 {
                     errors.Add("line " + (ln + 1) + ": unknown mode '" + e.Mode + "'");
                     e.Mode = "hold";
@@ -426,6 +444,42 @@ LS_Right = Right | | hold
                         e.Mods.Add(vk);
                     }
                     else e.Vk = vk;
+                }
+
+                // taphold / doubletap: 5th field holds the secondary keys
+                if (ok && (e.Mode == "taphold" || e.Mode == "doubletap"))
+                {
+                    if (parts.Length > 4 && parts[4].Trim().Length > 0)
+                    {
+                        e.HoldKeysText = parts[4].Trim();
+                        string[] htoks = e.HoldKeysText.Split('+');
+                        for (int i = 0; i < htoks.Length; i++)
+                        {
+                            ushort hvk;
+                            if (!KeyNames.TryParse(htoks[i], out hvk))
+                            {
+                                errors.Add("line " + (ln + 1) + ": unknown hold key '" + htoks[i].Trim() + "'");
+                                ok = false;
+                                break;
+                            }
+                            if (i < htoks.Length - 1)
+                            {
+                                if (!KeyNames.IsModifier(hvk))
+                                {
+                                    errors.Add("line " + (ln + 1) + ": '" + htoks[i].Trim() + "' is not a modifier");
+                                    ok = false;
+                                    break;
+                                }
+                                e.HoldMods.Add(hvk);
+                            }
+                            else e.HoldVk = hvk;
+                        }
+                    }
+                    else
+                    {
+                        errors.Add("line " + (ln + 1) + ": " + e.Mode + " needs secondary keys in the 5th field");
+                        e.Mode = "tap";
+                    }
                 }
                 if (ok) entries.Add(e);
             }
@@ -484,9 +538,56 @@ LS_Right = Right | | hold
 
         void Step(MapEntry e, bool down)
         {
-            if (down && !e.WasDown && e.KeysText.Length > 0)
+            if (e.Mode != "taphold" && e.Mode != "doubletap" && down && !e.WasDown && e.KeysText.Length > 0)
                 KeySender.LastSent = e.KeysText.ToUpperInvariant();
-            if (e.Mode == "hold")
+            if (e.Mode == "doubletap")
+            {
+                // creator-confirmed V2 semantics: a second press within the
+                // window fires the secondary; otherwise the single press fires
+                // the primary once the window expires
+                if (down && !e.WasDown)
+                {
+                    if (e.PressStart != 0 && Environment.TickCount - e.PressStart <= e.HoldMs)
+                    {
+                        KeySender.Tap(e.HoldMods, e.HoldVk);
+                        KeySender.LastSent = e.HoldKeysText.ToUpperInvariant();
+                        e.PressStart = 0;
+                    }
+                    else
+                    {
+                        e.PressStart = Environment.TickCount;
+                    }
+                }
+                else if (e.PressStart != 0 && Environment.TickCount - e.PressStart > e.HoldMs)
+                {
+                    KeySender.Tap(e.Mods, e.Vk);
+                    KeySender.LastSent = e.KeysText.ToUpperInvariant();
+                    e.PressStart = 0;
+                }
+            }
+            else if (e.Mode == "taphold")
+            {
+                // JoyToKey semantics: tap fires on release before the threshold,
+                // hold fires once the moment the threshold is crossed
+                if (down && !e.WasDown)
+                {
+                    e.PressStart = Environment.TickCount;
+                    e.HoldFired = false;
+                }
+                else if (down && e.WasDown && !e.HoldFired
+                    && Environment.TickCount - e.PressStart >= e.HoldMs)
+                {
+                    KeySender.Tap(e.HoldMods, e.HoldVk);
+                    KeySender.LastSent = e.HoldKeysText.ToUpperInvariant();
+                    e.HoldFired = true;
+                }
+                else if (!down && e.WasDown && !e.HoldFired)
+                {
+                    KeySender.Tap(e.Mods, e.Vk);
+                    KeySender.LastSent = e.KeysText.ToUpperInvariant();
+                }
+            }
+            else if (e.Mode == "hold")
             {
                 if (down && !e.WasDown)
                 {
@@ -942,9 +1043,10 @@ LS_Right = Right | | hold
                 glyphX = 0.720f; glyphY = 0.660f;
                 AddArrow(0.720f, 0.513f, "▲", "LS_UP", "DPAD_UP");
                 AddArrow(0.622f, 0.660f, "◀", "LS_LEFT", "DPAD_LEFT");
+                // WAKE is physically the Menu button doubling as aim right
                 var wake = new Slot(); wake.X = 0.818f; wake.Y = 0.660f; wake.Arrow = true;
                 wake.ArrowGlyph = "▶"; wake.Sub = "WAKE";
-                wake.Inputs = new string[] { "LS_RIGHT", "DPAD_RIGHT" };
+                wake.Inputs = new string[] { "MENU", "LS_RIGHT", "DPAD_RIGHT" };
                 slots.Add(wake);
                 AddArrow(0.720f, 0.807f, "▼", "LS_DOWN", "DPAD_DOWN");
             }
@@ -988,6 +1090,9 @@ LS_Right = Right | | hold
         Slot hoverSlot;
         MapEntry activeEntry;
         bool activeIsHold;
+        int activeStart;
+        System.Windows.Forms.Timer clickTimer;
+        MapEntry pendingClick;
 
         Rectangle BoardRect
         {
@@ -1037,19 +1142,59 @@ LS_Right = Right | | hold
             var entry = s.Arrow ? FindByInput(s.Inputs) : FindByLabel(s.Label);
             if (entry == null || entry.KeysText.Length == 0) return;
             activeEntry = entry;
+            activeStart = Environment.TickCount;
             MousePressed.Add(entry.Input);
             if (entry.Mode == "hold")
             {
                 activeIsHold = true;
                 KeySender.Press(entry.Mods, entry.Vk);
+                KeySender.LastSent = entry.KeysText.ToUpperInvariant();
+            }
+            else if (entry.Mode == "taphold")
+            {
+                activeIsHold = false; // decided on release by press duration
+            }
+            else if (entry.Mode == "doubletap")
+            {
+                activeIsHold = false;
+                if (clickTimer == null)
+                {
+                    clickTimer = new System.Windows.Forms.Timer();
+                    clickTimer.Tick += OnClickTimer;
+                }
+                if (pendingClick == entry)
+                {
+                    clickTimer.Stop();
+                    pendingClick = null;
+                    KeySender.Tap(entry.HoldMods, entry.HoldVk);
+                    KeySender.LastSent = entry.HoldKeysText.ToUpperInvariant();
+                }
+                else
+                {
+                    OnClickTimer(null, null); // flush any other pending single click
+                    pendingClick = entry;
+                    clickTimer.Interval = Math.Max(50, entry.HoldMs);
+                    clickTimer.Start();
+                }
             }
             else
             {
                 activeIsHold = false;
                 KeySender.Tap(entry.Mods, entry.Vk);
+                KeySender.LastSent = entry.KeysText.ToUpperInvariant();
             }
-            KeySender.LastSent = entry.KeysText.ToUpperInvariant();
             Invalidate();
+        }
+
+        void OnClickTimer(object sender, EventArgs e)
+        {
+            if (clickTimer != null) clickTimer.Stop();
+            if (pendingClick != null)
+            {
+                KeySender.Tap(pendingClick.Mods, pendingClick.Vk);
+                KeySender.LastSent = pendingClick.KeysText.ToUpperInvariant();
+                pendingClick = null;
+            }
         }
 
         protected override void OnMouseUp(MouseEventArgs e)
@@ -1061,7 +1206,23 @@ LS_Right = Right | | hold
         void EndClickPress()
         {
             if (activeEntry == null) return;
-            if (activeIsHold) KeySender.Release(activeEntry.Mods, activeEntry.Vk);
+            if (activeIsHold)
+            {
+                KeySender.Release(activeEntry.Mods, activeEntry.Vk);
+            }
+            else if (activeEntry.Mode == "taphold")
+            {
+                if (Environment.TickCount - activeStart >= activeEntry.HoldMs)
+                {
+                    KeySender.Tap(activeEntry.HoldMods, activeEntry.HoldVk);
+                    KeySender.LastSent = activeEntry.HoldKeysText.ToUpperInvariant();
+                }
+                else
+                {
+                    KeySender.Tap(activeEntry.Mods, activeEntry.Vk);
+                    KeySender.LastSent = activeEntry.KeysText.ToUpperInvariant();
+                }
+            }
             MousePressed.Remove(activeEntry.Input);
             activeEntry = null;
             Invalidate();
@@ -1129,8 +1290,25 @@ LS_Right = Right | | hold
             {
                 float x = board.X + board.Width * s.X;
                 float y = board.Y + board.Height * s.Y;
-                var entry = s.Arrow ? FindByInput(s.Inputs) : FindByLabel(s.Label);
-                if (entry != null) used.Add(entry);
+                MapEntry entry;
+                if (s.Arrow)
+                {
+                    // claim every entry matching any of the slot's inputs so
+                    // alternates (stick + button aim) don't fall out as chips
+                    entry = null;
+                    foreach (var inp in s.Inputs)
+                        foreach (var en in Engine != null ? Engine.Entries : new List<MapEntry>())
+                            if (en.Input == inp)
+                            {
+                                if (entry == null) entry = en;
+                                if (!used.Contains(en)) used.Add(en);
+                            }
+                }
+                else
+                {
+                    entry = FindByLabel(s.Label);
+                    if (entry != null && !used.Contains(entry)) used.Add(entry);
+                }
                 bool pressed = s.Arrow
                     ? IsPressed(s.Inputs)
                     : (entry != null && Engine != null && Engine.Pressed.Contains(entry.Input));
@@ -1201,7 +1379,7 @@ LS_Right = Right | | hold
                 // key caption below (labeled buttons only; arrows are self-evident)
                 if (!s.Arrow)
                 {
-                    string cap = mapped ? entry.KeysText.ToUpperInvariant() : "--";
+                    string cap = mapped ? entry.CaptionText.ToUpperInvariant() : "--";
                     using (var br = new SolidBrush(pressed ? Green : GreenDim))
                     {
                         var sz = g.MeasureString(cap, keyFont);
@@ -1237,7 +1415,7 @@ LS_Right = Right | | hold
                 foreach (var e in Engine.Entries)
                 {
                     if (used.Contains(e)) continue;
-                    string txt = e.Input + "  =  " + e.KeysText + (e.Mode == "repeat" ? "  (repeat)" : "");
+                    string txt = e.Input + "  =  " + e.CaptionText + (e.Mode == "repeat" ? "  (repeat)" : "");
                     bool on = Engine.Pressed.Contains(e.Input);
                     var sz = g.MeasureString(txt, smallFont);
                     var chip = new RectangleF(tx - sz.Width - 18 * u, board.Y + 12 * u, sz.Width + 18 * u, sz.Height + 7 * u);
@@ -1338,7 +1516,7 @@ LS_Right = Right | | hold
         const string RunKey = @"Software\Microsoft\Windows\CurrentVersion\Run";
         const string RunValue = "GolfDeck";
         const string AppKey = @"Software\GolfDeck";
-        public const string Version = "1.5";
+        public const string Version = "1.6";
 
         Engine engine = new Engine();
         BoardPanel board;
