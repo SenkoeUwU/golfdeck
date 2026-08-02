@@ -1,5 +1,12 @@
 # Changelog
 
+## v1.7
+
+- Options moved from a dropdown menu to a proper settings window (layout, colours, presets, updates).
+- New option, on by default: "Close button hides to the tray instead of exiting" - turn it off to make the X button quit.
+- mapping.txt now lives in %AppData%\GolfDeck instead of next to the exe; existing files are migrated automatically. "Open mapping folder" button added.
+- The exe now has an embedded icon (shows in Explorer, shortcuts and the taskbar).
+
 ## v1.6
 
 - Dual-function buttons: new `doubletap` mapping mode - single press sends one key, two quick presses (500ms window) send another, matching the physical V2 box behaviour (confirmed with the maker). A `taphold` mode (hold past a threshold instead) is also available.

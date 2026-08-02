@@ -32,7 +32,7 @@ If GSPro runs as administrator, use the tray menu "Restart as administrator" onc
 
 ## Mapping
 
-`mapping.txt` sits next to the exe and is created on first run. Format:
+`mapping.txt` lives in `%AppData%\GolfDeck` and is created on first run (older versions kept it next to the exe; it is moved over automatically). "Open mapping folder" in Options jumps there. Format:
 
 ```
 input = keys | label | mode | repeat_ms
