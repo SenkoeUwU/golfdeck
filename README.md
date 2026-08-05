@@ -1,6 +1,6 @@
 # GolfDeck
 
-Companion app for GSPro control boxes. Reads the box through XInput and sends the matching GSPro keyboard shortcuts. Single portable exe, no install, no dependencies beyond stock Windows 10/11.
+Companion app for GSPro control boxes, wired or wireless. Reads the box and sends the matching GSPro keyboard shortcuts. Single portable exe, no install, no dependencies beyond stock Windows 10/11.
 
 **[Download GolfDeck.exe](https://github.com/SenkoeUwU/golfdeck/releases/latest/download/GolfDeck.exe)** - single file, no install.
 
@@ -8,7 +8,9 @@ Companion app for GSPro control boxes. Reads the box through XInput and sends th
 
 ## Features
 
+- Works with both Xbox-compatible boxes (XInput) and generic USB joysticks (wired units that show up as "Generic USB Joystick"), picked automatically or chosen by hand.
 - On-screen replica of the physical board. Buttons light up when pressed, so it doubles as a wiring tester. Click a button with the mouse to test its key.
+- Input monitor showing exactly which button number and axis the box reports, for mapping a unit whose wiring you don't know.
 - V1 and V2 board layouts, chosen on first launch, switchable later.
 - Edition presets matching the box colorways (Original, Green Jacket, Red & White, Red White & Blue), plus individual board, button and letter colors.
 - All bindings in a plain-text `mapping.txt` (per-button key, label, hold/tap/repeat mode). Defaults are the standard GSPro shortcuts.
@@ -23,7 +25,7 @@ Companion app for GSPro control boxes. Reads the box through XInput and sends th
 ## Install
 
 1. Download `GolfDeck.exe` from the link above and put it anywhere (e.g. `C:\GolfDeck`).
-2. Run it and pick your board layout (V1 = PUTT top-left, V2 = SCORECARD top-left). A `mapping.txt` with that layout's GSPro keys is created next to the exe.
+2. Run it and pick your board layout (V1 = PUTT top-left, V2 = SCORECARD top-left). A `mapping.txt` with that layout's GSPro keys is created in `%AppData%\GolfDeck`.
 3. Plug in the box. Press buttons and watch them light up.
 4. Optional: turn on "Start with Windows" in the OPTIONS window (top-right of the board).
 
@@ -39,13 +41,16 @@ If GSPro runs as administrator, use the tray menu "Restart as administrator" onc
 input = keys | label | mode | repeat_ms
 ```
 
-- inputs: `A B X Y LB RB LT RT Menu View LS RS`, `DPad_*`, `LS_*`, `RS_*` (stick directions)
+- inputs, Xbox-compatible boxes: `A B X Y LB RB LT RT Menu View LS RS`, `DPad_*`, `LS_*`, `RS_*` (stick directions)
+- inputs, generic USB joysticks: `Btn1`-`Btn32` (`Button01` also accepted), `Axis1n`/`Axis1p` through `Axis6n`/`Axis6p` (n = negative direction, p = positive; axis 1 is X, axis 2 is Y), and `POV_Up` / `POV_Down` / `POV_Left` / `POV_Right` for hat switches
 - keys: `K`, `Ctrl+M`, `Shift+F5`, `Space` and so on
 - modes: `hold` (held while pressed), `tap` (once per press), `repeat` (every `repeat_ms` while held), `taphold` (quick press sends the first keys, holding past the threshold sends the 5th field's keys), `doubletap` (single press sends the first keys, two quick presses send the 5th field's keys: `Y = T | SCORECARD | doubletap | 500 | I`)
 
 V2 boards use `doubletap` for the dual-function buttons marked with green print: press once for the white label, press twice quickly for the green one.
 
 The board GUI attaches mappings by label, so if a physical button lights the wrong spot, swap the labels in `mapping.txt`. Edit and reload from inside the app.
+
+If your box is a generic joystick and the defaults don't match its wiring, open Options → Input monitor, press each button, note the `Btn` number it reports, and put those numbers in `mapping.txt`. "Load defaults" writes the template matching your current board layout and device type.
 
 ## Build from source
 
