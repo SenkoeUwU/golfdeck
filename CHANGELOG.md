@@ -1,5 +1,15 @@
 # Changelog
 
+## v2.0.1
+
+- Fixed: on an 8-way hat switch, the four diagonal positions matched no direction at all, so diagonal aiming did nothing. Directions now overlap at the diagonals the way a d-pad does.
+- Fixed: which axes a generic joystick has is now read from the device's capability flags instead of being inferred from the axis count, which was wrong for devices that expose (for example) a rudder axis but no Z axis.
+- Fixed: a long device name in the status line could run underneath the OPTIONS button. The status line now clips with an ellipsis, and the connected-device text is shown in a compact form.
+- Fixed: the double-press and battery timers used a zero timestamp as a sentinel, which would misbehave on the ~49-day tick counter rollover.
+- Changed: when a device is connected whose mapping does not match while GolfDeck is in the tray, it now shows a tray notification instead of a dialog, so nothing steals focus from GSPro mid-round.
+- Device scanning while nothing is plugged in no longer queries every joystick slot twice per pass.
+- Removed dead code and corrected a wrong capability constant.
+
 ## v2.0
 
 - Support for control boxes that are not Xbox-compatible. Units that enumerate as "Generic USB Joystick" (DirectInput/HID) were previously invisible, because GolfDeck only read XInput. It now reads both, with no added dependencies.

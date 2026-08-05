@@ -130,6 +130,11 @@ namespace GolfDeck
         public const uint JOYERR_NOERROR = 0;
         public const uint JOY_RETURNALL = 0x000000ff;
         public const uint POV_CENTERED = 0xFFFF;
+        public const uint JOYCAPS_HASZ = 0x0001;
+        public const uint JOYCAPS_HASR = 0x0002;
+        public const uint JOYCAPS_HASU = 0x0004;
+        public const uint JOYCAPS_HASV = 0x0008;
+        public const uint JOYCAPS_HASPOV = 0x0010;
     }
 
     [StructLayout(LayoutKind.Sequential)]
@@ -326,6 +331,9 @@ namespace GolfDeck
         public bool Holding;
         public int PressStart;
         public bool HoldFired;
+        // explicit flag rather than a PressStart==0 sentinel: TickCount passes
+        // through zero every ~49 days, which would swallow a press
+        public bool AwaitingSecond;
 
         public string CaptionText
         {
@@ -707,6 +715,8 @@ LS_Right = Right | | hold
     {
         public abstract string Id { get; }
         public abstract string Label { get; }
+        // compact form for the board's status line, which has limited width
+        public virtual string ShortLabel { get { return Label; } }
         public abstract bool Poll();                        // false once the device goes away
         public abstract bool IsDown(string input, Engine cfg);
         public abstract bool Knows(string input);           // name belongs to this device family
@@ -726,6 +736,7 @@ LS_Right = Right | | hold
 
         public override string Id { get { return "xinput:" + index; } }
         public override string Label { get { return "Xbox controller (player " + (index + 1) + ")"; } }
+        public override string ShortLabel { get { return "Controller connected (P" + (index + 1) + ")"; } }
 
         public override bool Poll()
         {
@@ -816,19 +827,23 @@ LS_Right = Right | | hold
             caps = c;
             label = (c.szPname ?? "").Trim();
             if (label.Length == 0) label = "Generic joystick";
+            shortLabel = label;
             label += "  (device " + (devId + 1) + ")";
-            // X/Y always exist; the rest depend on the device's reported axis count
+            // X/Y always exist; the rest are advertised individually by capability
+            // flag. Counting axes instead would assume Z/R/U/V appear in order,
+            // which is wrong for a device that has, say, R but no Z.
             axisPresent[0] = axisPresent[1] = true;
-            axisPresent[2] = c.wNumAxes >= 3;
-            axisPresent[3] = c.wNumAxes >= 4;
-            axisPresent[4] = c.wNumAxes >= 5;
-            axisPresent[5] = c.wNumAxes >= 6;
+            axisPresent[2] = (c.wCaps & WinMM.JOYCAPS_HASZ) != 0;
+            axisPresent[3] = (c.wCaps & WinMM.JOYCAPS_HASR) != 0;
+            axisPresent[4] = (c.wCaps & WinMM.JOYCAPS_HASU) != 0;
+            axisPresent[5] = (c.wCaps & WinMM.JOYCAPS_HASV) != 0;
         }
+
+        string shortLabel;
 
         public override string Id { get { return "hid:" + id; } }
         public override string Label { get { return label; } }
-        public uint ButtonCount { get { return caps.wNumButtons; } }
-        public bool HasPov { get { return (caps.wCaps & 0x0016) != 0; } }
+        public override string ShortLabel { get { return shortLabel; } }
 
         public override bool Poll()
         {
@@ -909,12 +924,15 @@ LS_Right = Right | | hold
 
             int pov = PovDeg;
             if (pov < 0) return false;
+            // Bounds are inclusive so an 8-way hat's diagonals register as both
+            // neighbouring directions, the way a d-pad does. Exclusive bounds left
+            // 45/135/225/315 matching nothing, making diagonal aim dead.
             switch (input)
             {
-                case "POV_UP": return pov > 315 || pov < 45;
-                case "POV_RIGHT": return pov > 45 && pov < 135;
-                case "POV_DOWN": return pov > 135 && pov < 225;
-                case "POV_LEFT": return pov > 225 && pov < 315;
+                case "POV_UP": return pov >= 315 || pov <= 45;
+                case "POV_RIGHT": return pov >= 45 && pov <= 135;
+                case "POV_DOWN": return pov >= 135 && pov <= 225;
+                case "POV_LEFT": return pov >= 225 && pov <= 315;
             }
             return false;
         }
@@ -996,7 +1014,9 @@ LS_Right = Right | | hold
             return null;
         }
 
-        // auto mode: prefer a connected XInput pad, otherwise the first HID joystick
+        // auto mode: prefer a connected XInput pad, otherwise the first HID joystick.
+        // Probes devices directly instead of going through Enumerate + Open, which
+        // would query every slot twice; this runs continuously while unplugged.
         public static InputSource OpenAuto()
         {
             for (int i = 0; i < 4; i++)
@@ -1004,11 +1024,16 @@ LS_Right = Right | | hold
                 XINPUT_STATE st;
                 if (XInput.GetState(i, out st) == 0) return new XInputSource(i);
             }
-            foreach (var d in Enumerate())
+            uint n = 0;
+            try { n = WinMM.joyGetNumDevs(); }
+            catch (DllNotFoundException) { return null; }
+            for (uint i = 0; i < n && i < 16; i++)
             {
-                if (!d.Id.StartsWith("hid:")) continue;
-                var s = Open(d.Id);
-                if (s != null) return s;
+                JOYCAPS caps = new JOYCAPS();
+                if (WinMM.joyGetDevCaps((UIntPtr)i, ref caps, (uint)Marshal.SizeOf(typeof(JOYCAPS))) != WinMM.JOYERR_NOERROR)
+                    continue;
+                var src = new HidSource(i, caps);
+                if (src.Poll()) return src;
             }
             return null;
         }
@@ -1026,6 +1051,7 @@ LS_Right = Right | | hold
         public byte BatteryType;            // 0 = none/unsupported
         public byte BatteryLevel;
         int lastBatteryCheck;
+        bool batteryChecked;
 
         public InputSource Source;          // active device, null when nothing is connected
         public string PreferredId = "";     // "" = auto, otherwise a specific device id
@@ -1035,6 +1061,11 @@ LS_Right = Right | | hold
         public string SourceLabel
         {
             get { return Source != null ? Source.Label : "no device"; }
+        }
+
+        public string SourceShortLabel
+        {
+            get { return Source != null ? Source.ShortLabel : "no device"; }
         }
 
         public bool Poll()
@@ -1051,7 +1082,7 @@ LS_Right = Right | | hold
                 Source = PreferredId.Length > 0 ? InputSources.Open(PreferredId) : InputSources.OpenAuto();
                 if (Source != null)
                 {
-                    lastBatteryCheck = 0;
+                    batteryChecked = false;
                     RecheckMapping();
                     changed = true;
                 }
@@ -1063,7 +1094,7 @@ LS_Right = Right | | hold
             if (!got)
             {
                 BatteryType = 0;
-                lastBatteryCheck = 0;
+                batteryChecked = false;
                 ReleaseAll();
                 foreach (var e in Entries) e.WasDown = false;
                 if (Pressed.Count > 0) { Pressed.Clear(); changed = true; }
@@ -1071,8 +1102,9 @@ LS_Right = Right | | hold
             }
 
             // battery: coarse 4-level reading where the device reports one, every 5s
-            if (lastBatteryCheck == 0 || Environment.TickCount - lastBatteryCheck > 5000)
+            if (!batteryChecked || Environment.TickCount - lastBatteryCheck > 5000)
             {
+                batteryChecked = true;
                 lastBatteryCheck = Environment.TickCount;
                 byte bt, bl;
                 if (Source.TryBattery(out bt, out bl)) { BatteryType = bt; BatteryLevel = bl; }
@@ -1113,22 +1145,23 @@ LS_Right = Right | | hold
                 // the primary once the window expires
                 if (down && !e.WasDown)
                 {
-                    if (e.PressStart != 0 && Environment.TickCount - e.PressStart <= e.HoldMs)
+                    if (e.AwaitingSecond && Environment.TickCount - e.PressStart <= e.HoldMs)
                     {
                         KeySender.Tap(e.HoldMods, e.HoldVk);
                         KeySender.LastSent = e.HoldKeysText.ToUpperInvariant();
-                        e.PressStart = 0;
+                        e.AwaitingSecond = false;
                     }
                     else
                     {
                         e.PressStart = Environment.TickCount;
+                        e.AwaitingSecond = true;
                     }
                 }
-                else if (e.PressStart != 0 && Environment.TickCount - e.PressStart > e.HoldMs)
+                else if (e.AwaitingSecond && Environment.TickCount - e.PressStart > e.HoldMs)
                 {
                     KeySender.Tap(e.Mods, e.Vk);
                     KeySender.LastSent = e.KeysText.ToUpperInvariant();
-                    e.PressStart = 0;
+                    e.AwaitingSecond = false;
                 }
             }
             else if (e.Mode == "taphold")
@@ -2030,33 +2063,8 @@ LS_Right = Right | | hold
                 }
             }
 
-            // status line top-left (replaces the old wordmark)
-            float sx = board.X + 18 * u;
-            float sy = board.Y + 12 * u;
-            if (connText.Length > 0)
-            {
-                using (var br = new SolidBrush(connColor))
-                {
-                    g.DrawString(connText, markFont, br, sx, sy);
-                    sx += g.MeasureString(connText, markFont).Width + 18 * u;
-                }
-            }
-            if (infoText.Length > 0)
-            {
-                using (var br = new SolidBrush(Theme.StatusDim))
-                    g.DrawString(infoText, smallFont, br, sx, sy + 1 * u);
-                sx += g.MeasureString(infoText, smallFont).Width;
-            }
-            if (battText.Length > 0)
-            {
-                sx += 16 * u;
-                using (var br = new SolidBrush(battColor))
-                    g.DrawString(battText, smallFont, br, sx, sy + 1 * u);
-                sx += g.MeasureString(battText, smallFont).Width;
-            }
-            float statusEnd = sx;
-
-            // stylized OPTIONS chip, top-right
+            // stylized OPTIONS chip, top-right. Drawn before the status line so the
+            // status knows how much width it may use and never runs underneath it.
             {
                 var osz = g.MeasureString("OPTIONS", markFont);
                 optionsRect = new RectangleF(board.Right - osz.Width - 34 * u, board.Y + 10 * u,
@@ -2071,6 +2079,35 @@ LS_Right = Right | | hold
                 using (var br = new SolidBrush(hoverOptions ? Green : Color.FromArgb(220, Green)))
                     g.DrawString("OPTIONS", markFont, br, optionsRect.X + 11 * u, optionsRect.Y + 4 * u);
             }
+
+            // status line top-left (replaces the old wordmark), clipped to the space
+            // left of the OPTIONS chip
+            float sx = board.X + 18 * u;
+            float sy = board.Y + 12 * u;
+            float statusLimit = optionsRect.X - 12 * u;
+            if (connText.Length > 0)
+            {
+                string t = Ellipsize(g, connText, markFont, statusLimit - sx);
+                using (var br = new SolidBrush(connColor))
+                    g.DrawString(t, markFont, br, sx, sy);
+                sx += g.MeasureString(t, markFont).Width + 18 * u;
+            }
+            if (infoText.Length > 0 && sx < statusLimit)
+            {
+                string t = Ellipsize(g, infoText, smallFont, statusLimit - sx);
+                using (var br = new SolidBrush(Theme.StatusDim))
+                    g.DrawString(t, smallFont, br, sx, sy + 1 * u);
+                sx += g.MeasureString(t, smallFont).Width;
+            }
+            if (battText.Length > 0 && sx + 16 * u < statusLimit)
+            {
+                sx += 16 * u;
+                string t = Ellipsize(g, battText, smallFont, statusLimit - sx);
+                using (var br = new SolidBrush(battColor))
+                    g.DrawString(t, smallFont, br, sx, sy + 1 * u);
+                sx += g.MeasureString(t, smallFont).Width;
+            }
+            float statusEnd = sx;
 
 
             // entries not attached to any board slot as chips along the top edge
@@ -2123,6 +2160,19 @@ LS_Right = Right | | hold
         }
 
         // slim 4-way cross: four lines out of center with proper arrowheads
+        // trim text with a trailing ellipsis so it fits the given width
+        static string Ellipsize(Graphics g, string text, Font f, float maxWidth)
+        {
+            if (maxWidth <= 0) return "";
+            if (g.MeasureString(text, f).Width <= maxWidth) return text;
+            for (int len = text.Length - 1; len > 0; len--)
+            {
+                string t = text.Substring(0, len).TrimEnd() + "...";
+                if (g.MeasureString(t, f).Width <= maxWidth) return t;
+            }
+            return "";
+        }
+
         static void DrawCross(Graphics g, float cx, float cy, float ext, Color c)
         {
             using (var pen = new Pen(c, ext * 0.20f))
@@ -2211,7 +2261,7 @@ LS_Right = Right | | hold
         const string RunKey = @"Software\Microsoft\Windows\CurrentVersion\Run";
         const string RunValue = "GolfDeck";
         const string AppKey = @"Software\GolfDeck";
-        public const string Version = "2.0";
+        public const string Version = "2.0.1";
 
         Engine engine = new Engine();
         BoardPanel board;
@@ -2687,7 +2737,18 @@ LS_Right = Right | | hold
             bool generic = engine.Source is HidSource;
             string kind = generic ? "generic USB joystick" : "Xbox-compatible controller";
             string mapKind = generic ? "an Xbox controller" : "a generic joystick";
-            if (!Visible) RestoreFromTray();
+
+            // Running in the tray means a round may be in progress: a modal dialog
+            // would steal focus from GSPro. Notify quietly and let the user come to it.
+            if (!Visible)
+            {
+                if (tray != null)
+                    tray.ShowBalloonTip(4000, "GolfDeck",
+                        "A " + kind + " was connected, but the current mapping is for " + mapKind +
+                        ". Open GolfDeck and use Options > Load defaults.", ToolTipIcon.Warning);
+                return;
+            }
+
             if (MessageBox.Show(MsgOwner,
                 "Connected device: " + engine.Source.Label + "\r\n\r\n" +
                 "This is a " + kind + ", but the current mapping is written for " + mapKind +
@@ -2708,7 +2769,7 @@ LS_Right = Right | | hold
             Color col;
             if (engine.Connected)
             {
-                conn = "●  " + engine.SourceLabel.ToUpperInvariant();
+                conn = "●  " + engine.SourceShortLabel.ToUpperInvariant();
                 col = Theme.Accent;
             }
             else

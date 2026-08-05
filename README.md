@@ -1,6 +1,6 @@
 # GolfDeck
 
-Companion app for GSPro control boxes. Reads the box through XInput and sends the matching GSPro keyboard shortcuts. Single portable exe, no install, no dependencies beyond stock Windows 10/11.
+Companion app for GSPro control boxes, wired or wireless. Reads the box and sends the matching GSPro keyboard shortcuts. Single portable exe, no install, no dependencies beyond stock Windows 10/11.
 
 **[Download GolfDeck.exe](https://github.com/SenkoeUwU/golfdeck/releases/latest/download/GolfDeck.exe)** - single file, no install.
 
@@ -25,7 +25,7 @@ Companion app for GSPro control boxes. Reads the box through XInput and sends th
 ## Install
 
 1. Download `GolfDeck.exe` from the link above and put it anywhere (e.g. `C:\GolfDeck`).
-2. Run it and pick your board layout (V1 = PUTT top-left, V2 = SCORECARD top-left). A `mapping.txt` with that layout's GSPro keys is created next to the exe.
+2. Run it and pick your board layout (V1 = PUTT top-left, V2 = SCORECARD top-left). A `mapping.txt` with that layout's GSPro keys is created in `%AppData%\GolfDeck`.
 3. Plug in the box. Press buttons and watch them light up.
 4. Optional: turn on "Start with Windows" in the OPTIONS window (top-right of the board).
 
