@@ -6,7 +6,9 @@
 - Input device picker in Options: Auto (prefers an Xbox pad), or a specific device by name.
 - Input monitor in Options: live view of the button numbers, axes and hat position the box reports, so a unit with unknown wiring can be mapped without any external tool.
 - Mapping format gained generic input names: `Btn1`-`Btn32` (`Button01` accepted too), `Axis1n`/`Axis1p` through `Axis6n`/`Axis6p`, and `POV_Up`/`Down`/`Left`/`Right`.
-- Default mappings for generic joysticks on both board layouts, plus a "Load defaults" button that writes the template matching the current board and device.
+- Default mappings for generic joysticks on both board layouts, taken from the maker's JoyToKey profiles (wired V1 and V2), plus a "Load defaults" button that writes the template matching the current board and device.
+- Swapping between a wired box and a wireless one is detected: GolfDeck notices the mapping no longer matches the connected device and offers to load the right defaults.
+- The first-launch layout prompt names the controller it detected.
 - The status line warns when the loaded mapping is written for a different device family than the one connected.
 - Status line now names the active device instead of the XInput player slot.
 

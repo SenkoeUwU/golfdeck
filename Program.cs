@@ -416,13 +416,13 @@ Axis2p  = Down  | | hold
 # POV_Right = Right | | hold
 ";
 
-        // No maker profile exists for a generic V1 unit yet: numbering below is a
-        // starting point in board reading order, meant to be corrected with the
-        // Input monitor.
-        public const string DefaultMappingV1Hid = @"# GolfDeck mapping - V1 board, generic USB joystick
+        // Wired V1 wiring taken from the maker's JoyToKey profile: every control
+        // is a plain button, including the aim arrows (Btn9-12). No axes.
+        public const string DefaultMappingV1Hid = @"# GolfDeck mapping - V1 board, generic USB joystick (wired unit)
 #
-# PROVISIONAL button numbers. Open Options > Input monitor, press each button
-# on the box, note the Btn number it reports, and correct the numbers below.
+# Button numbers match the maker's JoyToKey profile for the wired box.
+# If your unit differs, open Options > Input monitor, press each button,
+# and correct the numbers below.
 #
 # format:   input = keys | label | mode
 #
@@ -430,21 +430,26 @@ Axis2p  = Down  | | hold
 stick_threshold = 37
 trigger_threshold = 25
 
-Btn1    = U       | PUTT       | tap
-Btn2    = Y       | HEATMAP    | tap
-Btn3    = O       | FLYOVER    | tap
-Btn4    = J       | SHOTCAM    | tap
-Btn5    = I       | CLUB UP    | tap
-Btn6    = K       | CLUB DOWN  | tap
+Btn3    = U       | PUTT       | tap
+Btn4    = Y       | HEATMAP    | tap
+Btn5    = O       | FLYOVER    | tap
+Btn6    = J       | SHOTCAM    | tap
+Btn2    = I       | CLUB UP    | tap
+Btn1    = K       | CLUB DOWN  | tap
 Btn7    = A       | AIM POINT  | tap
 Btn8    = Ctrl+M  | MULLIGAN   | tap
 
-Axis1n  = Left  | | hold
-Axis1p  = Right | | hold
-Axis2n  = Up    | | hold
-Axis2p  = Down  | | hold
+# aim arrows are wired as buttons on this unit
+Btn9    = Left  | | hold
+Btn10   = Up    | | hold
+Btn11   = Down  | | hold
+Btn12   = Right | | hold
 
-# uncomment if your unit reports a hat switch instead of stick axes
+# uncomment if your unit reports stick axes or a hat switch instead
+# Axis1n  = Left  | | hold
+# Axis1p  = Right | | hold
+# Axis2n  = Up    | | hold
+# Axis2p  = Down  | | hold
 # POV_Up    = Up    | | hold
 # POV_Down  = Down  | | hold
 # POV_Left  = Left  | | hold
@@ -1613,14 +1618,14 @@ LS_Right = Right | | hold
                 AddBtn(0.383f, 0.835f, "FLYOVER", "T→");
 
                 glyphX = 0.720f; glyphY = 0.660f;
-                AddArrow(0.720f, 0.513f, "▲", UpInputs);
-                AddArrow(0.622f, 0.660f, "◀", LeftInputs);
+                AddArrow(0.720f, 0.513f, "▲", V2Up);
+                AddArrow(0.622f, 0.660f, "◀", V2Left);
                 // WAKE is physically a button doubling as aim right
                 var wake = new Slot(); wake.X = 0.818f; wake.Y = 0.660f; wake.Arrow = true;
                 wake.ArrowGlyph = "▶"; wake.Sub = "WAKE";
                 wake.Inputs = WakeInputs;
                 slots.Add(wake);
-                AddArrow(0.720f, 0.807f, "▼", DownInputs);
+                AddArrow(0.720f, 0.807f, "▼", V2Down);
             }
             else
             {
@@ -1636,10 +1641,10 @@ LS_Right = Right | | hold
 
                 // equal-arm plus: every arrow 66px from the cluster center (700x478 window)
                 glyphX = 0.500f; glyphY = 0.665f;
-                AddArrow(0.500f, 0.518f, "▲", UpInputs);
-                AddArrow(0.402f, 0.665f, "◀", LeftInputs);
-                AddArrow(0.598f, 0.665f, "▶", RightInputs);
-                AddArrow(0.500f, 0.812f, "▼", DownInputs);
+                AddArrow(0.500f, 0.518f, "▲", V1Up);
+                AddArrow(0.402f, 0.665f, "◀", V1Left);
+                AddArrow(0.598f, 0.665f, "▶", V1Right);
+                AddArrow(0.500f, 0.812f, "▼", V1Down);
             }
             Invalidate();
         }
@@ -1651,14 +1656,19 @@ LS_Right = Right | | hold
             slots.Add(s);
         }
 
-        // an arrow lights for any input that can drive it, XInput or generic
-        static readonly string[] UpInputs = { "LS_UP", "DPAD_UP", "AXIS2N", "POV_UP" };
-        static readonly string[] DownInputs = { "LS_DOWN", "DPAD_DOWN", "AXIS2P", "POV_DOWN" };
-        static readonly string[] LeftInputs = { "LS_LEFT", "DPAD_LEFT", "AXIS1N", "POV_LEFT" };
-        static readonly string[] RightInputs = { "LS_RIGHT", "DPAD_RIGHT", "AXIS1P", "POV_RIGHT" };
+        // An arrow lights for any input that can drive it, XInput or generic.
+        // The generic button numbers are LAYOUT-SPECIFIC: on the wired V1 unit the
+        // arrows are Btn9-12, but on the V2 unit Btn11/Btn12 are FLYOVER and PUTT,
+        // so the lists must not be shared between layouts.
+        static readonly string[] V1Up = { "LS_UP", "DPAD_UP", "AXIS2N", "POV_UP", "BTN10" };
+        static readonly string[] V1Down = { "LS_DOWN", "DPAD_DOWN", "AXIS2P", "POV_DOWN", "BTN11" };
+        static readonly string[] V1Left = { "LS_LEFT", "DPAD_LEFT", "AXIS1N", "POV_LEFT", "BTN9" };
+        static readonly string[] V1Right = { "LS_RIGHT", "DPAD_RIGHT", "AXIS1P", "POV_RIGHT", "BTN12" };
+        static readonly string[] V2Up = { "LS_UP", "DPAD_UP", "AXIS2N", "POV_UP" };
+        static readonly string[] V2Down = { "LS_DOWN", "DPAD_DOWN", "AXIS2P", "POV_DOWN" };
+        static readonly string[] V2Left = { "LS_LEFT", "DPAD_LEFT", "AXIS1N", "POV_LEFT" };
         // V2 only: aim-right is also wired to a physical button (the WAKE button).
-        // These names mean other things on V1 (Menu = AIM POINT, Btn8 = MULLIGAN),
-        // so they must not be claimed by the shared arrow slots.
+        // Menu/Btn8 mean AIM POINT and MULLIGAN on V1, so V1 must not claim them.
         static readonly string[] WakeInputs = { "LS_RIGHT", "DPAD_RIGHT", "AXIS1P", "POV_RIGHT", "MENU", "BTN8" };
 
         void AddArrow(float x, float y, string glyph, params string[] inputs)
@@ -2660,8 +2670,36 @@ LS_Right = Right | | hold
             {
                 statusTick = 0;
                 UpdateStatus();
+                OfferMatchingMapping();
             }
         }
+
+        // Swapping a wired (generic) box for a wireless (Xbox) one, or the reverse,
+        // leaves a mapping whose input names the new device cannot produce. Offer the
+        // matching defaults once per device rather than silently doing nothing.
+        void OfferMatchingMapping()
+        {
+            if (AppState.NoUpdateCheck || optionsDlg != null) return;
+            if (!engine.MappingMismatch || engine.Source == null) return;
+            if (mismatchPromptedFor == engine.Source.Id) return;
+            mismatchPromptedFor = engine.Source.Id;
+
+            bool generic = engine.Source is HidSource;
+            string kind = generic ? "generic USB joystick" : "Xbox-compatible controller";
+            string mapKind = generic ? "an Xbox controller" : "a generic joystick";
+            if (!Visible) RestoreFromTray();
+            if (MessageBox.Show(MsgOwner,
+                "Connected device: " + engine.Source.Label + "\r\n\r\n" +
+                "This is a " + kind + ", but the current mapping is written for " + mapKind +
+                ", so none of the buttons will work.\r\n\r\n" +
+                "Load the default " + (AppState.Layout == 1 ? "V2" : "V1") + " mapping for this device?",
+                "GolfDeck", MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return;
+
+            File.WriteAllText(Config.MappingPath, Config.DefaultFor(AppState.Layout, generic));
+            LoadMapping(false);
+        }
+
+        string mismatchPromptedFor = "";
 
         void UpdateStatus()
         {
@@ -2920,14 +2958,24 @@ LS_Right = Right | | hold
     {
         static int PromptLayout()
         {
-            using (var dlg = new Form())
+            int[] choice = { 0 };
+            using (var dlg = BuildLayoutPrompt(choice))
             {
+                dlg.ShowDialog();
+                return choice[0];
+            }
+        }
+
+        public static Form BuildLayoutPrompt(int[] choiceOut)
+        {
+            {
+                var dlg = new Form();
                 dlg.Text = "GolfDeck";
                 dlg.FormBorderStyle = FormBorderStyle.FixedDialog;
                 dlg.MaximizeBox = false;
                 dlg.MinimizeBox = false;
                 dlg.Font = new Font("Segoe UI", Ui.F(12f), FontStyle.Regular, GraphicsUnit.Pixel);
-                dlg.ClientSize = new Size(Ui.X(430), Ui.X(160));
+                dlg.ClientSize = new Size(Ui.X(430), Ui.X(184));
                 dlg.StartPosition = FormStartPosition.CenterScreen;
                 dlg.BackColor = Color.FromArgb(19, 19, 21);
                 dlg.Icon = AppIcon.Get();
@@ -2938,7 +2986,17 @@ LS_Right = Right | | hold
                 lbl.Bounds = new Rectangle(Ui.X(20), Ui.X(15), Ui.X(390), Ui.X(40));
                 dlg.Controls.Add(lbl);
 
-                int choice = 0;
+                // name what is actually plugged in, so the choice is informed
+                var found = InputSources.Enumerate();
+                var det = new Label();
+                det.Text = found.Count > 0
+                    ? "Detected: " + found[0].Label
+                    : "No controller detected yet - you can still choose.";
+                det.ForeColor = found.Count > 0 ? Color.FromArgb(158, 232, 112) : Color.FromArgb(220, 95, 90);
+                det.AutoSize = true;
+                det.Location = new Point(Ui.X(20), Ui.X(52));
+                dlg.Controls.Add(det);
+
                 Button b1 = new Button(), b2 = new Button();
                 b1.Text = "V1\r\nPUTT top-left";
                 b2.Text = "V2\r\nSCORECARD top-left";
@@ -2946,16 +3004,15 @@ LS_Right = Right | | hold
                 for (int i = 0; i < 2; i++)
                 {
                     int idx = i;
-                    bs[i].Bounds = new Rectangle(Ui.X(20 + i * 200), Ui.X(65), Ui.X(190), Ui.X(70));
+                    bs[i].Bounds = new Rectangle(Ui.X(20 + i * 200), Ui.X(90), Ui.X(190), Ui.X(70));
                     bs[i].FlatStyle = FlatStyle.Flat;
                     bs[i].ForeColor = Color.Gainsboro;
                     bs[i].BackColor = Color.FromArgb(36, 37, 40);
                     bs[i].FlatAppearance.BorderColor = Color.FromArgb(100, 160, 80);
-                    bs[i].Click += delegate { choice = idx; dlg.DialogResult = DialogResult.OK; };
+                    bs[i].Click += delegate { choiceOut[0] = idx; dlg.DialogResult = DialogResult.OK; };
                     dlg.Controls.Add(bs[i]);
                 }
-                dlg.ShowDialog();
-                return choice;
+                return dlg;
             }
         }
 
@@ -2973,11 +3030,13 @@ LS_Right = Right | | hold
             float forcedScale = 0f;
             bool shotOptions = false;
             bool shotMonitor = false;
+            bool shotPrompt = false;
             for (int i = 0; i < args.Length; i++)
             {
                 if (args[i] == "--minimized") minimized = true;
                 else if (args[i] == "--shotoptions") shotOptions = true;
                 else if (args[i] == "--shotmonitor") shotMonitor = true;
+                else if (args[i] == "--shotprompt") shotPrompt = true;
                 else if (args[i] == "--screenshot" && i + 1 < args.Length) screenshot = args[++i];
                 else if (args[i] == "--press" && i + 1 < args.Length) press = args[++i];
                 else if (args[i] == "--scale" && i + 1 < args.Length)
@@ -3065,9 +3124,10 @@ LS_Right = Right | | hold
                 if (press != null) form.DemoPress(press);
                 Application.DoEvents();
                 Form target = form;
-                if (shotOptions || shotMonitor)
+                if (shotOptions || shotMonitor || shotPrompt)
                 {
-                    target = shotMonitor ? form.BuildInputMonitor() : form.BuildOptionsDialog();
+                    target = shotPrompt ? BuildLayoutPrompt(new int[1])
+                        : shotMonitor ? form.BuildInputMonitor() : form.BuildOptionsDialog();
                     target.StartPosition = FormStartPosition.Manual;
                     target.Location = new Point(-4000, -4000);
                     target.Show();

@@ -26,12 +26,15 @@ Options button
 - Load defaults: rewrites mapping.txt for the current board and device
 - Check for updates
 
-Generic (non-Xbox) boxes
------------------------
-Units that Windows lists as "Generic USB Joystick" work too. GolfDeck picks
-them up automatically when no Xbox-compatible controller is present. If the
-buttons do the wrong things, open Options > Input monitor, press each button
-on the box, note the Btn number it reports, and put those numbers into
+Wired and wireless boxes
+------------------------
+Both work. Wireless units are Xbox-compatible; wired units show up as
+"Generic USB Joystick". GolfDeck detects which one is plugged in and uses
+the matching key mapping - if you swap one for the other it will notice and
+offer to load the right defaults.
+
+If the buttons do the wrong things, open Options > Input monitor, press each
+button on the box, note the Btn number it reports, and put those numbers into
 mapping.txt (Options > Edit mapping).
 
 Updates
