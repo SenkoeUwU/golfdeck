@@ -19,9 +19,20 @@ GolfDeck setup
 Options button
 --------------
 - Board layout: V1 / V2 (offers to load that layout's default GSPro mapping)
+- Input device: Auto, or pick a specific controller / joystick
+- Input monitor: shows live which button number and axis your box reports
 - Edition presets: Original, Green Jacket, Red & White, Red White & Blue
 - Board / Button / Letters colours individually
+- Load defaults: rewrites mapping.txt for the current board and device
 - Check for updates
+
+Generic (non-Xbox) boxes
+-----------------------
+Units that Windows lists as "Generic USB Joystick" work too. GolfDeck picks
+them up automatically when no Xbox-compatible controller is present. If the
+buttons do the wrong things, open Options > Input monitor, press each button
+on the box, note the Btn number it reports, and put those numbers into
+mapping.txt (Options > Edit mapping).
 
 Updates
 -------
