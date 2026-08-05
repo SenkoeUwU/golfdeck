@@ -1,5 +1,9 @@
 # Changelog
 
+## v2.0.2
+
+- Removed the small chips that appeared along the top of the board listing mappings with no matching button. They looked like buttons or settings, and the status line already reports a mapping that does not fit the board.
+
 ## v2.0.1
 
 - Fixed: on an 8-way hat switch, the four diagonal positions matched no direction at all, so diagonal aiming did nothing. Directions now overlap at the diagonals the way a d-pad does.
