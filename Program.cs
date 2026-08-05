@@ -1944,31 +1944,11 @@ LS_Right = Right | | hold
                 board.Y + board.Height * glyphY,
                 r * 0.62f, Color.FromArgb(230, Green));
 
-            var used = new List<MapEntry>();
-
             foreach (var s in slots)
             {
                 float x = board.X + board.Width * s.X;
                 float y = board.Y + board.Height * s.Y;
-                MapEntry entry;
-                if (s.Arrow)
-                {
-                    // claim every entry matching any of the slot's inputs so
-                    // alternates (stick + button aim) don't fall out as chips
-                    entry = null;
-                    foreach (var inp in s.Inputs)
-                        foreach (var en in Engine != null ? Engine.Entries : new List<MapEntry>())
-                            if (en.Input == inp)
-                            {
-                                if (entry == null) entry = en;
-                                if (!used.Contains(en)) used.Add(en);
-                            }
-                }
-                else
-                {
-                    entry = FindByLabel(s.Label);
-                    if (entry != null && !used.Contains(entry)) used.Add(entry);
-                }
+                MapEntry entry = s.Arrow ? FindByInput(s.Inputs) : FindByLabel(s.Label);
                 bool pressed = s.Arrow
                     ? IsPressed(s.Inputs)
                     : (entry != null && Engine != null && Engine.Pressed.Contains(entry.Input));
@@ -2107,56 +2087,6 @@ LS_Right = Right | | hold
                     g.DrawString(t, smallFont, br, sx, sy + 1 * u);
                 sx += g.MeasureString(t, smallFont).Width;
             }
-            float statusEnd = sx;
-
-
-            // entries not attached to any board slot as chips along the top edge
-            if (Engine != null)
-            {
-                float tx = optionsRect.X - 8 * u;
-                int hidden = 0;
-                var unclaimed = new List<MapEntry>();
-                foreach (var e in Engine.Entries)
-                    if (!used.Contains(e)) unclaimed.Add(e);
-                for (int ci = 0; ci < unclaimed.Count; ci++)
-                {
-                    var e = unclaimed[ci];
-                    string txt = e.Input + "  =  " + e.CaptionText + (e.Mode == "repeat" ? "  (repeat)" : "");
-                    bool on = Engine.Pressed.Contains(e.Input);
-                    var sz = g.MeasureString(txt, smallFont);
-                    float cw = sz.Width + 18 * u;
-                    if (tx - cw < statusEnd + 14 * u)
-                    {
-                        hidden = unclaimed.Count - ci;
-                        break;
-                    }
-                    var chip = new RectangleF(tx - cw, board.Y + 12 * u, cw, sz.Height + 7 * u);
-                    using (var cp = RoundedF(chip, Ui.X(10)))
-                    {
-                        using (var bg = new SolidBrush(on ? Color.FromArgb(70, 158, 232, 112) : Color.FromArgb(34, 35, 37)))
-                            g.FillPath(bg, cp);
-                        using (var pen = new Pen(on ? Green : Color.FromArgb(58, 60, 62), 1f * u))
-                            g.DrawPath(pen, cp);
-                    }
-                    using (var br = new SolidBrush(on ? Green : GreenDim))
-                        g.DrawString(txt, smallFont, br, chip.X + 9 * u, chip.Y + 3.5f * u);
-                    tx = chip.X - 8 * u;
-                }
-                if (hidden > 0)
-                {
-                    string txt = "+" + hidden;
-                    var sz = g.MeasureString(txt, smallFont);
-                    var chip = new RectangleF(tx - sz.Width - 14 * u, board.Y + 12 * u, sz.Width + 14 * u, sz.Height + 7 * u);
-                    if (chip.X > statusEnd)
-                    {
-                        using (var cp = RoundedF(chip, Ui.X(10)))
-                        using (var pen = new Pen(Color.FromArgb(58, 60, 62), 1f * u))
-                            g.DrawPath(pen, cp);
-                        using (var br = new SolidBrush(GreenDim))
-                            g.DrawString(txt, smallFont, br, chip.X + 7 * u, chip.Y + 3.5f * u);
-                    }
-                }
-            }
         }
 
         // slim 4-way cross: four lines out of center with proper arrowheads
@@ -2261,7 +2191,7 @@ LS_Right = Right | | hold
         const string RunKey = @"Software\Microsoft\Windows\CurrentVersion\Run";
         const string RunValue = "GolfDeck";
         const string AppKey = @"Software\GolfDeck";
-        public const string Version = "2.0.1";
+        public const string Version = "2.0.2";
 
         Engine engine = new Engine();
         BoardPanel board;
